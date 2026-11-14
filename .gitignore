@@ -1,0 +1,13 @@
+.claude/
+.pio/
+.vscode/
+__pycache__/
+*.pyc
+*.bin
+dump*.bin
+flash-dump-*
+credentials.json
+.credentials.json
+clock_token
+*.env
+.DS_Store
