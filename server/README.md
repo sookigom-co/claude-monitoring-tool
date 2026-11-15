@@ -1,102 +1,104 @@
+**English** | [한국어](README.ko.md)
+
 # clock-usage-relay (server) — 1.2.0
 
-스마트 클락이 화면 아래에 표시할 **Claude 구독 주간 한도 사용률(%)** 을 Anthropic 에서 받아 작은 JSON 으로 내려주는 중계 서버입니다. Python 3.9 이상 표준 라이브러리만 씁니다(외부 패키지 0개).
+A relay server that fetches the **Claude subscription weekly-limit usage (%)** from Anthropic and serves it as a small JSON document for the smart clock to show at the bottom of its screen. It uses only the Python 3.9+ standard library (zero external packages).
 
-시계 펌웨어는 [`../hardware/README.md`](../hardware/README.md) 에 있습니다.
+The clock firmware is in [`../hardware/README.md`](../hardware/README.md).
 
 ```
-[시계 ESP8266] --HTTPS--> [앞단 nginx 프록시 서버] --HTTP(내부망)--> [relay :8787] --5분에 1회--> api.anthropic.com
-                 Bearer relay 토큰      TLS 종료·경로 제한·요청 수 제한         토큰 확인·캐시·OAuth 갱신
+[Clock ESP8266] --HTTPS, Bearer relay token--> [Front nginx proxy server] --HTTP (internal network)--> [relay :8787] --once per 5 min--> api.anthropic.com
+                                               TLS termination, path limit, rate limit                 token check, cache, OAuth refresh
 ```
 
-Anthropic OAuth 토큰은 relay 서버 안에만 있습니다. 시계에는 사용률 숫자만 내려갑니다.
+The Anthropic OAuth token stays inside the relay server only. The clock receives only the usage numbers.
 
-| 버전 | 변경 | 태스크 |
+| Version | Changes | Task |
 |---|---|---|
-| 1.0.0 | 최초 | SOO-598 |
-| 1.1.0 | 기본 바인드 `127.0.0.1`, 토큰 오입력 반복 시 접속 주소별 차단(`429`), 리버스 프록시 뒤 실제 접속 주소 인식, Caddy 설정 동봉 | SOO-600 |
-| **1.2.0** | **별도 서버의 nginx 앞단 구성으로 전환.** `RELAY_TRUSTED_PROXIES` 에 CIDR(`10.0.0.0/24`)·IPv4-mapped 주소 허용, 잘못된 값이면 기동 거부, 프록시 설정 누락 경고, `X-Forwarded-For` 값이 IP 가 아니면 무시. nginx 설정 파일 동봉, Caddy 설정 제거 | SOO-612 |
+| 1.0.0 | Initial release | SOO-598 |
+| 1.1.0 | Default bind `127.0.0.1`, per-client-address lockout on repeated wrong tokens (`429`), recognition of the real client address behind a reverse proxy, bundled Caddy config | SOO-600 |
+| **1.2.0** | **Switched to an nginx front proxy on a separate server.** `RELAY_TRUSTED_PROXIES` accepts CIDR (`10.0.0.0/24`) and IPv4-mapped addresses, refuses to start on invalid values, warns when the proxy setting is missing, ignores `X-Forwarded-For` values that are not IPs. Bundled nginx config file, removed Caddy config | SOO-612 |
 
-## 0. 검증 상태
+## 0. Verification status
 
-| 항목 | 상태 |
+| Item | Status |
 |---|---|
-| 단위 시험 (`tests/test_relay.py`) | `CONFIRMED` — 32건 통과 (2026-11-15) |
-| nginx 연동 시험 (`tests/integration/run_nginx_it.sh`) | `CONFIRMED` — nginx 1.26.3(Debian 13 패키지) + 동봉 설정 파일로 11건 통과 (2026-11-15). 10.2절 |
-| 실제 Anthropic 응답 형식, Fable 행 유무 | `UNVERIFIED` — 설치 후 첫 호출에서 확인합니다(4.5절) |
-| 실제 도메인·Let's Encrypt 인증서로 시계 접속 | `UNVERIFIED` |
+| Unit tests (`tests/test_relay.py`) | `CONFIRMED` — 32 passed (2026-11-15) |
+| nginx integration tests (`tests/integration/run_nginx_it.sh`) | `CONFIRMED` — 11 passed with nginx 1.26.3 (Debian 13 package) + the bundled config file (2026-11-15). Section 10.2 |
+| Actual Anthropic response format, presence of the Fable row | `UNVERIFIED` — check on the first call after installation (Section 4.5) |
+| Clock connecting via a real domain and Let's Encrypt certificate | `UNVERIFIED` |
 
-## 1. 데이터 출처 조사 결과
+## 1. Data source investigation
 
-### 1.1 조사 방법과 한계
+### 1.1 Method and limitations
 
-- 조사 대상: 컨테이너에 설치된 Claude Code **2.1.319** 실행 파일 안의 사용량 조회·토큰 갱신 코드(문자열·스키마 정의). 2026-11-13 확인.
-- 실제 토큰으로 엔드포인트를 호출하지 **않았습니다.** 보드 계정 토큰을 받지 않는다는 태스크 조건 때문입니다. 따라서 아래 응답 형식은 "Claude Code 가 이렇게 읽는다"는 근거이고, 실제 응답 확인은 설치 후 첫 호출에서 합니다. → 전 항목 `UNVERIFIED (실호출 미확인)`.
-- 공식 공개 API 가 아닙니다. Anthropic 이 예고 없이 형식을 바꾸거나 막을 수 있습니다.
+- Investigated: the usage-query and token-refresh code (strings and schema definitions) inside the Claude Code **2.1.319** executable installed in the container. Checked 2026-11-13.
+- The endpoints were **not** called with a real token, because the task conditions say the board account's token is not to be handed over. The response format below is therefore evidence of "how Claude Code reads it"; the actual response is checked on the first call after installation. → All items are `UNVERIFIED (no live call yet)`.
+- This is not an official public API. Anthropic may change the format or block it without notice.
 
-### 1.2 사용량 조회 엔드포인트
+### 1.2 Usage query endpoint
 
-| 항목 | 값 | 근거 |
+| Item | Value | Evidence |
 |---|---|---|
-| URL | `GET https://api.anthropic.com/api/oauth/usage` | 클라이언트 코드 경로 문자열 (`/api/oauth/usage`, 기본 base `https://api.anthropic.com`) |
-| 인증 | `Authorization: Bearer <OAuth access token>` | 같은 코드 |
-| 헤더 | `anthropic-beta: oauth-2025-04-20` | OAuth 요청 공통 베타 상수 |
-| 필요 scope | `user:profile` 포함 토큰 | 클라이언트 설명문 "null when … a token without the profile scope" |
-| 선택 쿼리 | `?skip_spend=1` 등 | relay 는 쿼리 없이 호출 |
+| URL | `GET https://api.anthropic.com/api/oauth/usage` | Path string in client code (`/api/oauth/usage`, default base `https://api.anthropic.com`) |
+| Auth | `Authorization: Bearer <OAuth access token>` | Same code |
+| Header | `anthropic-beta: oauth-2025-04-20` | Beta constant common to OAuth requests |
+| Required scope | Token that includes `user:profile` | Client description text "null when … a token without the profile scope" |
+| Optional query | `?skip_spend=1`, etc. | The relay calls without a query |
 
-### 1.3 응답 필드 (Claude Code 가 파싱하는 스키마 기준)
+### 1.3 Response fields (based on the schema Claude Code parses)
 
-| 필드 | 형식 | 의미 | relay 사용 |
+| Field | Format | Meaning | Used by relay |
 |---|---|---|---|
-| `five_hour` | `{utilization: number\|null, resets_at: ISO8601\|null}` | 5시간 세션 한도 | 사용 안 함 |
-| `seven_day` | 위와 같음 | **주간 전체 한도** | **Claude 칸** |
-| `seven_day_opus` | 위와 같음 | 주간 Opus 한도 | 사용 안 함 |
-| `seven_day_sonnet` | 위와 같음 | 주간 Sonnet 한도 | 사용 안 함 |
-| `seven_day_oauth_apps` | 위와 같음 | 주간 OAuth 앱 한도 | 사용 안 함 |
-| `cinder_cove`, `wattle_ember` | 위와 같음(+금액 필드) | 내부 코드명, 의미 미확인 | 사용 안 함 |
-| `extra_usage` | `{is_enabled, monthly_limit, used_credits, utilization, currency}` | 추가 사용(초과 과금) | 사용 안 함 |
-| `limits[]` | `{kind, group, percent, resets_at, severity, is_active, scope:{model:{display_name}}}` | 서버가 정한 표시용 행 목록 | **Fable 칸**, Claude 칸 예비 |
+| `five_hour` | `{utilization: number\|null, resets_at: ISO8601\|null}` | 5-hour session limit | Not used |
+| `seven_day` | Same as above | **Overall weekly limit** | **Claude slot** |
+| `seven_day_opus` | Same as above | Weekly Opus limit | Not used |
+| `seven_day_sonnet` | Same as above | Weekly Sonnet limit | Not used |
+| `seven_day_oauth_apps` | Same as above | Weekly OAuth app limit | Not used |
+| `cinder_cove`, `wattle_ember` | Same as above (+ amount fields) | Internal code names, meaning unknown | Not used |
+| `extra_usage` | `{is_enabled, monthly_limit, used_credits, utilization, currency}` | Extra usage (overage billing) | Not used |
+| `limits[]` | `{kind, group, percent, resets_at, severity, is_active, scope:{model:{display_name}}}` | Server-defined list of display rows | **Fable slot**, fallback for Claude slot |
 
-- `utilization` 단위: 클라이언트 설명문 기준 **0~100 (%)**. 응답 헤더(`anthropic-ratelimit-unified-*`)는 0~1 이지만 relay 는 헤더를 쓰지 않습니다.
-- `limits[].kind` 예: `session`, `weekly_all`, `weekly_scoped`. 모델별 주간 행은 `kind="weekly_scoped"` 이고 `scope.model.display_name` 에 모델 표시명이 옵니다. 클라이언트 설명문의 예시가 정확히 `'Fable'` 입니다.
+- `utilization` unit: **0–100 (%)** according to the client description text. The response headers (`anthropic-ratelimit-unified-*`) use 0–1, but the relay does not use the headers.
+- `limits[].kind` examples: `session`, `weekly_all`, `weekly_scoped`. Per-model weekly rows have `kind="weekly_scoped"` with the model display name in `scope.model.display_name`. The example in the client description text is exactly `'Fable'`.
 
-### 1.4 Fable 버킷 유무
+### 1.4 Presence of a Fable bucket
 
-| 경로 | 상태 | 근거 |
+| Path | Status | Evidence |
 |---|---|---|
-| `limits[]` 의 `kind="weekly_scoped"` + `scope.model.display_name="Fable"` | **있음** (`SUSPECT` — 계정에 따라 있을 수도 없을 수도) | 설명문 "Per-model weekly windows from the server limits[] array" · 예시 `'Fable'` |
-| 버킷 키 `seven_day_overage_included` | 있음 (주로 응답 **헤더** 쪽) | 클라이언트 라벨표 `seven_day_overage_included: "Fable limit"`, 리셋 이름 `"Fable reset"` |
-| `seven_day_fable` 같은 이름의 키 | **없음** | 실행 파일 전체에 해당 문자열 0건 |
+| `limits[]` with `kind="weekly_scoped"` + `scope.model.display_name="Fable"` | **Present** (`SUSPECT` — may or may not exist depending on the account) | Description text "Per-model weekly windows from the server limits[] array" · example `'Fable'` |
+| Bucket key `seven_day_overage_included` | Present (mainly in the response **headers**) | Client label table `seven_day_overage_included: "Fable limit"`, reset name `"Fable reset"` |
+| A key named like `seven_day_fable` | **Absent** | 0 occurrences of that string in the entire executable |
 
-relay 의 Fable 칸 결정 순서:
-1. `limits[]` 에서 `weekly_scoped` 이고 모델명에 `fable` 이 들어간 행의 `percent`.
-2. 없으면 최상위 `seven_day_overage_included.utilization`.
-3. 둘 다 없으면 `{"pct":null,"value":"n/a"}`. 다른 값으로 채우지 않습니다.
+Order in which the relay determines the Fable slot:
+1. `percent` of the `limits[]` row that is `weekly_scoped` and whose model name contains `fable`.
+2. Otherwise, top-level `seven_day_overage_included.utilization`.
+3. If neither exists, `{"pct":null,"value":"n/a"}`. It is never filled with some other value.
 
-### 1.5 토큰 만료·갱신
+### 1.5 Token expiry and refresh
 
-| 항목 | 값 | 근거 |
+| Item | Value | Evidence |
 |---|---|---|
-| 갱신 URL | `POST https://platform.claude.com/v1/oauth/token` | 클라이언트 `TOKEN_URL` |
-| 본문 | JSON `{"grant_type":"refresh_token","refresh_token":…,"client_id":"9d1c250a-e61b-44d9-88ed-5944d1962f5e","scope":"user:profile user:inference …"}` | 같은 코드 |
-| 응답 | `{access_token, refresh_token, expires_in, scope}` | 같은 코드 |
-| refresh token 회전 | **응답마다 새 refresh token 이 올 수 있음.** 없으면 기존 값 유지 | 클라이언트가 `refresh_token = 응답값 ?? 기존값` 으로 처리 |
-| 저장 형식 | `~/.claude/.credentials.json` 의 `claudeAiOauth.{accessToken, refreshToken, expiresAt(ms)}` | Claude Code 저장 형식 |
+| Refresh URL | `POST https://platform.claude.com/v1/oauth/token` | Client `TOKEN_URL` |
+| Body | JSON `{"grant_type":"refresh_token","refresh_token":…,"client_id":"9d1c250a-e61b-44d9-88ed-5944d1962f5e","scope":"user:profile user:inference …"}` | Same code |
+| Response | `{access_token, refresh_token, expires_in, scope}` | Same code |
+| Refresh token rotation | **Each response may carry a new refresh token.** If absent, the existing value is kept | Client handles it as `refresh_token = response value ?? existing value` |
+| Storage format | `claudeAiOauth.{accessToken, refreshToken, expiresAt(ms)}` in `~/.claude/.credentials.json` | Claude Code storage format |
 
-relay 동작:
-- 만료 5분 전이면 미리 갱신합니다. 사용량 조회가 401/403 이면 1회 갱신 후 재시도합니다.
-- 갱신 결과(새 access/refresh token)를 자격증명 파일에 **원자적으로 다시 씁니다**(임시 파일 → `rename`, 권한 600).
-- 갱신이 실패하면 마지막 값을 그대로 내려주고 `status:"stale"`, `error:"refresh_failed"` 를 붙입니다.
+Relay behavior:
+- Refreshes ahead of time when within 5 minutes of expiry. If the usage query returns 401/403, refreshes once and retries.
+- **Atomically writes** the refresh result (new access/refresh token) back to the credentials file (temp file → `rename`, mode 600).
+- If the refresh fails, serves the last value unchanged with `status:"stale"` and `error:"refresh_failed"`.
 
-> **CAUTION** — refresh token 이 회전하므로 **같은 로그인 정보를 relay 와 다른 Claude Code 가 함께 쓰면 한쪽이 로그아웃됩니다.** relay 전용으로 새로 로그인한 자격증명을 쓰십시오(4.3절).
+> **CAUTION** — Because the refresh token rotates, **if the relay and another Claude Code instance share the same login, one of them gets logged out.** Use credentials from a fresh login dedicated to the relay (Section 4.3).
 
-> **NOTE** — `claude setup-token` 으로 만드는 장기 토큰은 scope 가 `user:inference` 하나뿐입니다. 사용량 조회에 필요한 `user:profile` 이 없어 **동작하지 않을 것으로 봅니다** (`SUSPECT`).
+> **NOTE** — The long-lived token created by `claude setup-token` has only the `user:inference` scope. It lacks `user:profile`, which the usage query needs, so it is **expected not to work** (`SUSPECT`).
 
 ---
 
-## 2. JSON 계약 (확정본)
+## 2. JSON contract (final)
 
-`GET /clock/usage` · 헤더 `Authorization: Bearer <relay 토큰>`
+`GET /clock/usage` · header `Authorization: Bearer <relay token>`
 
 ```json
 {"updated":"2026-11-13T19:30:16+09:00","period":"7d",
@@ -105,61 +107,61 @@ relay 동작:
  "status":"ok"}
 ```
 
-| 필드 | 형식 | 설명 |
+| Field | Format | Description |
 |---|---|---|
-| `updated` | ISO8601 문자열 \| `null` | 마지막 **성공** 조회 시각(`RELAY_TZ`, 기본 KST). 한 번도 성공 못 했으면 `null` |
-| `period` | `"7d"` | 고정 |
-| `items[]` | 항상 2개, 순서 `Claude`, `Fable` | |
-| `items[].value` | 문자열 | `"42%"` 또는 `"n/a"` |
-| `items[].pct` | 0~100 정수 \| `null` | 반올림·범위 제한 적용 |
-| `items[].resets` | `"MM-DD HH:MM"` (선택) | 주간 한도 초기화 시각. 모르면 필드 자체가 없음 |
-| `status` | `"ok"` \| `"stale"` \| `"error"` | **추가 필드.** `stale` = 최근 조회 실패, 이전 값 표시 중. `error` = 성공 이력 없음 |
-| `error` | 문자열 (선택) | **추가 필드.** `refresh_failed`, `usage_http_401`, `network`, `credentials_unreadable` 등 |
+| `updated` | ISO8601 string \| `null` | Time of the last **successful** query (`RELAY_TZ`, default KST). `null` if it has never succeeded |
+| `period` | `"7d"` | Fixed |
+| `items[]` | Always 2, in the order `Claude`, `Fable` | |
+| `items[].value` | String | `"42%"` or `"n/a"` |
+| `items[].pct` | Integer 0–100 \| `null` | Rounded and range-clamped |
+| `items[].resets` | `"MM-DD HH:MM"` (optional) | Weekly limit reset time. If unknown, the field is omitted entirely |
+| `status` | `"ok"` \| `"stale"` \| `"error"` | **Additional field.** `stale` = the latest query failed, showing the previous value. `error` = no successful query yet |
+| `error` | String (optional) | **Additional field.** `refresh_failed`, `usage_http_401`, `network`, `credentials_unreadable`, etc. |
 
-- `status`·`error` 는 SOO-597 초안 대비 **추가**입니다. 펌웨어는 모르는 필드를 무시하면 됩니다. 펌웨어 0.1.1 이후는 `status` 를 머리글에 표시합니다(`hardware/README.md` 10장).
-- 기타 응답: 토큰 없음·불일치 `401 {"error":"unauthorized"}`, 토큰 오입력 반복으로 차단된 접속 주소 `429 {"error":"too_many_failures"}` + `Retry-After`(초), 다른 경로 `404`, GET 외 메서드 `405`, `GET /healthz` 는 인증 없이 `{"ok":true}`(5장 nginx 구성에서는 외부에 공개하지 않습니다).
+- `status` and `error` are **additions** relative to the SOO-597 draft. The firmware can simply ignore unknown fields. Firmware 0.1.1 and later shows `status` in the header line (`hardware/README.md` Section 10).
+- Other responses: missing or mismatched token `401 {"error":"unauthorized"}`, client address locked out after repeated wrong tokens `429 {"error":"too_many_failures"}` + `Retry-After` (seconds), other paths `404`, methods other than GET `405`, `GET /healthz` returns `{"ok":true}` without auth (not exposed externally in the Section 5 nginx setup).
 
 
 ---
 
-## 3. 설정값
+## 3. Settings
 
-`/etc/clock-usage-relay/relay.env` 에 넣습니다(예시: `deploy/relay.env.example`).
+Put these in `/etc/clock-usage-relay/relay.env` (example: `deploy/relay.env.example`).
 
-| 변수 | 기본값 | 설명 |
+| Variable | Default | Description |
 |---|---|---|
-| `RELAY_BIND` | `127.0.0.1` | 바인드 주소. **nginx 가 다른 서버에 있으면** relay 서버의 내부망 IP 또는 `0.0.0.0` 으로 바꿉니다(5.3절) |
-| `RELAY_PORT` | `8787` | 포트 |
-| `RELAY_TRUSTED_PROXIES` | `127.0.0.1,::1` | nginx 서버 주소. 쉼표로 여러 개, CIDR 가능(`10.0.0.12`, `10.0.0.0/24`). 이 주소에서 온 요청만 `X-Forwarded-For` 의 마지막 값을 실제 접속 주소로 봅니다. 잘못된 값이면 기동하지 않습니다 |
-| `RELAY_CACHE_SECONDS` | `300` | 상위 호출 간격(최소 30). 실패해도 이 간격을 지킵니다 |
-| `RELAY_TZ` | `Asia/Seoul` | 표시 시간대 |
-| `RELAY_CREDENTIALS_FILE` | (필수) | Claude Code `.credentials.json` 형식 파일. 갱신 시 relay 가 다시 씁니다 |
-| `RELAY_CLOCK_TOKEN_FILE` | (필수, 또는 `RELAY_CLOCK_TOKEN`) | 시계 인증 토큰. 16자 이상 |
-| `RELAY_AUTH_MAX_FAILURES` | `10` | 한 접속 주소가 구간 안에 토큰을 이만큼 틀리면 차단 |
-| `RELAY_AUTH_WINDOW_SECONDS` | `600` | 실패 횟수를 세는 구간(초) |
-| `RELAY_AUTH_LOCKOUT_SECONDS` | `900` | 차단 시간(초). 차단 중에는 맞는 토큰도 `429` |
-| `RELAY_USAGE_URL` · `RELAY_TOKEN_URL` · `RELAY_OAUTH_CLIENT_ID` · `RELAY_OAUTH_SCOPES` · `RELAY_OAUTH_BETA` | 1장 표의 값 | 상위 형식이 바뀌었을 때 코드 수정 없이 바꾸는 용도 |
+| `RELAY_BIND` | `127.0.0.1` | Bind address. **If nginx is on a different server**, change it to the relay server's internal IP or `0.0.0.0` (Section 5.3) |
+| `RELAY_PORT` | `8787` | Port |
+| `RELAY_TRUSTED_PROXIES` | `127.0.0.1,::1` | nginx server address. Comma-separated, CIDR allowed (`10.0.0.12`, `10.0.0.0/24`). Only for requests from these addresses is the last value of `X-Forwarded-For` treated as the real client address. The relay refuses to start on invalid values |
+| `RELAY_CACHE_SECONDS` | `300` | Upstream call interval (minimum 30). This interval is respected even after failures |
+| `RELAY_TZ` | `Asia/Seoul` | Display time zone |
+| `RELAY_CREDENTIALS_FILE` | (required) | File in Claude Code `.credentials.json` format. The relay rewrites it on refresh |
+| `RELAY_CLOCK_TOKEN_FILE` | (required, or `RELAY_CLOCK_TOKEN`) | Clock auth token. At least 16 characters |
+| `RELAY_AUTH_MAX_FAILURES` | `10` | Lock out a client address after this many wrong tokens within the window |
+| `RELAY_AUTH_WINDOW_SECONDS` | `600` | Window for counting failures (seconds) |
+| `RELAY_AUTH_LOCKOUT_SECONDS` | `900` | Lockout duration (seconds). During lockout even a correct token gets `429` |
+| `RELAY_USAGE_URL` · `RELAY_TOKEN_URL` · `RELAY_OAUTH_CLIENT_ID` · `RELAY_OAUTH_SCOPES` · `RELAY_OAUTH_BETA` | Values from the Section 1 tables | For changing these without code edits if the upstream format changes |
 
-> **CAUTION** — nginx 가 다른 서버에 있는데 `RELAY_TRUSTED_PROXIES` 에 그 주소를 넣지 않으면, relay 는 모든 시계를 nginx 주소 하나로 봅니다. 그러면 누군가 토큰을 10번 틀리는 것만으로 **모든 시계가 15분간 차단**됩니다. 이 상태로 기동하면 로그에 `RELAY_TRUSTED_PROXIES has only loopback` 경고가 남습니다.
+> **CAUTION** — If nginx is on a different server and its address is not in `RELAY_TRUSTED_PROXIES`, the relay sees every clock as the single nginx address. Then anyone can **lock out all clocks for 15 minutes** just by sending a wrong token 10 times. If the relay starts in this state, the log shows a `RELAY_TRUSTED_PROXIES has only loopback` warning.
 
 ---
 
-## 4. relay 설치
+## 4. Installing the relay
 
-> **WARNING** — 이 절차는 운영 서버에서 root 로 실행하는 명령입니다. 보드 또는 보드가 지시한 담당자가 직접 실행합니다. 에이전트는 `ssh-rw` 로 실행하지 않습니다(회사 규칙 SOO-184).
+> **WARNING** — This procedure consists of commands run as root on a production server. The board, or a person the board designates, runs them directly. Agents do not run them via `ssh-rw` (company rule SOO-184).
 
-### 4.1 설치 위치
+### 4.1 Where to install
 
-- 하이퍼바이저(Proxmox) 호스트에 직접 두지 말고 Debian 13 LXC 컨테이너 1개(메모리 128~256MB, 디스크 1GB)에 설치하기를 권장합니다.
-- 요구사항: `python3` 3.9 이상, systemd, 바깥으로 HTTPS(443) 접속 가능.
-- nginx 프록시 서버와 같은 서버에 둘 수도 있습니다. 그 경우 `RELAY_BIND`·`RELAY_TRUSTED_PROXIES` 는 기본값 그대로 두고 nginx 설정의 `RELAY_HOST` 를 `127.0.0.1` 로 씁니다.
+- Rather than placing it directly on the hypervisor (Proxmox) host, install it in a single Debian 13 LXC container (128–256 MB memory, 1 GB disk). This is the recommended setup.
+- Requirements: `python3` 3.9 or later, systemd, outbound HTTPS (443) access.
+- It can also live on the same server as the nginx proxy. In that case, leave `RELAY_BIND` and `RELAY_TRUSTED_PROXIES` at their defaults and set `RELAY_HOST` in the nginx config to `127.0.0.1`.
 
-### 4.2 파일 설치
+### 4.2 Installing the files
 
-레포를 받은 뒤 `server/` 폴더에서 실행합니다.
+After obtaining the repo, run these from the `server/` folder.
 
 ```bash
-python3 --version                                  # 3.9 이상
+python3 --version                                  # 3.9 or later
 useradd --system --no-create-home --shell /usr/sbin/nologin clockrelay
 install -d -m 755 /opt/clock-usage-relay
 install -m 644 clock_usage_relay.py /opt/clock-usage-relay/
@@ -169,13 +171,13 @@ install -d -m 700 -o clockrelay -g clockrelay /var/lib/clock-usage-relay
 install -m 644 deploy/clock-usage-relay.service /etc/systemd/system/
 ```
 
-그다음 `/etc/clock-usage-relay/relay.env` 의 `NGINX_PROXY_IP` 를 nginx 서버의 내부망 IP 로 바꿉니다(5.3절). nginx 와 같은 서버면 `RELAY_BIND=127.0.0.1` 로 바꾸고 `RELAY_TRUSTED_PROXIES` 줄을 지웁니다.
+Next, replace `NGINX_PROXY_IP` in `/etc/clock-usage-relay/relay.env` with the nginx server's internal IP (Section 5.3). If the relay is on the same server as nginx, change it to `RELAY_BIND=127.0.0.1` and delete the `RELAY_TRUSTED_PROXIES` line.
 
-### 4.3 비밀값 넣기
+### 4.3 Adding the secrets
 
-> **CAUTION** — 토큰 값을 채팅·태스크 코멘트·저장소·셸 기록에 남기지 마십시오. 파일로만 옮깁니다.
+> **CAUTION** — Do not leave token values in chat, task comments, the repository, or shell history. Move them only via files.
 
-**(가) 시계용 relay 토큰** — 서버에서 만듭니다. 무작위 32바이트(43자)입니다.
+**(a) Relay token for the clock** — Generate it on the server. It is 32 random bytes (43 characters).
 
 ```bash
 umask 077
@@ -183,39 +185,39 @@ python3 -c 'import secrets;print(secrets.token_urlsafe(32))' > /var/lib/clock-us
 chown clockrelay:clockrelay /var/lib/clock-usage-relay/clock_token
 ```
 
-**(나) Anthropic OAuth 자격증명** — 구독 계정 소유자가 직접 합니다.
+**(b) Anthropic OAuth credentials** — The subscription account owner does this personally.
 
-1. Linux 또는 WSL PC 에서 **새 빈 설정 폴더**로 Claude Code 를 실행합니다.
+1. On a Linux or WSL PC, run Claude Code with a **new, empty config folder**.
    ```bash
    export CLAUDE_CONFIG_DIR="$(mktemp -d)"
-   claude            # /login → "Claude account with subscription" → 브라우저 로그인
+   claude            # /login → "Claude account with subscription" → browser login
    ```
-   macOS 는 자격증명이 키체인에 저장돼 파일이 생기지 않으므로 Linux/WSL 을 씁니다(`SUSPECT` — macOS 미확인).
-2. `/exit` 로 종료하고 `$CLAUDE_CONFIG_DIR/.credentials.json` 이 생겼는지 확인합니다.
-3. 그 파일을 relay 서버로 옮깁니다(예: `scp`).
+   On macOS the credentials are stored in the Keychain and no file is created, so use Linux/WSL (`SUSPECT` — macOS not verified).
+2. Exit with `/exit` and confirm that `$CLAUDE_CONFIG_DIR/.credentials.json` was created.
+3. Move that file to the relay server (e.g. with `scp`).
    ```bash
    install -m 600 -o clockrelay -g clockrelay .credentials.json /var/lib/clock-usage-relay/credentials.json
    ```
-4. PC 쪽 임시 폴더를 지웁니다: `rm -rf "$CLAUDE_CONFIG_DIR"`. **이 로그인으로 Claude Code 를 다시 쓰지 않습니다.**
+4. Delete the temporary folder on the PC: `rm -rf "$CLAUDE_CONFIG_DIR"`. **Do not use this login with Claude Code again.**
 
-파일 형식:
+File format:
 ```json
 {"claudeAiOauth":{"accessToken":"…","refreshToken":"…","expiresAt":1794960000000,"scopes":["user:profile","user:inference"]}}
 ```
 
-### 4.4 기동
+### 4.4 Starting
 
 ```bash
 systemctl daemon-reload
 systemctl enable --now clock-usage-relay
 systemctl status clock-usage-relay --no-pager
-journalctl -u clock-usage-relay -n 50 --no-pager      # "listening on …" 확인. "only loopback" 경고가 없어야 합니다
+journalctl -u clock-usage-relay -n 50 --no-pager      # check for "listening on …". There must be no "only loopback" warning
 ```
 
-### 4.5 relay 단독 확인 (relay 서버 안에서)
+### 4.5 Checking the relay alone (on the relay server)
 
 ```bash
-H=127.0.0.1        # RELAY_BIND 를 내부망 IP 로 정했으면 그 IP
+H=127.0.0.1        # if RELAY_BIND is set to an internal IP, use that IP
 TOKEN="$(cat /var/lib/clock-usage-relay/clock_token)"
 curl -s http://$H:8787/healthz                                     # {"ok":true}
 curl -s -H "Authorization: Bearer $TOKEN" http://$H:8787/clock/usage; echo
@@ -223,85 +225,85 @@ curl -s -o /dev/null -w '%{http_code}\n' http://$H:8787/clock/usage   # 401
 unset TOKEN
 ```
 
-| 결과 | 판정 |
+| Result | Verdict |
 |---|---|
-| `status:"ok"`, `Claude` 의 `pct` 가 숫자 | 정상. claude.ai 설정 → 사용량 화면의 주간 % 와 같은지 대조합니다 |
-| `Fable` 이 `n/a` | 이 계정 응답에 Fable 행이 없습니다. 결과를 태스크에 남겨 주십시오 |
-| `error:"usage_http_401"` / `refresh_failed` | 자격증명 무효. 4.3(나)를 다시 합니다 |
-| `error:"usage_http_403"` | 토큰에 `user:profile` 권한이 없을 가능성이 큽니다 |
-| `error:"network"` | relay 서버 → `api.anthropic.com`·`platform.claude.com` 443 경로 확인 |
+| `status:"ok"`, `pct` of `Claude` is a number | Normal. Compare it with the weekly % on the claude.ai Settings → Usage screen |
+| `Fable` is `n/a` | This account's response has no Fable row. Please record the result in the task |
+| `error:"usage_http_401"` / `refresh_failed` | Invalid credentials. Redo 4.3 (b) |
+| `error:"usage_http_403"` | The token most likely lacks the `user:profile` permission |
+| `error:"network"` | Check the route from the relay server → `api.anthropic.com` and `platform.claude.com` on 443 |
 
 ---
 
-## 5. 앞단 nginx 로 HTTPS 공개
+## 5. Exposing over HTTPS via the front nginx
 
-시계를 회사 밖에서 쓰기 위한 구성입니다. **HTTPS 는 앞단 nginx 프록시 서버가 처리합니다.** relay 는 평문 HTTP 로 내부망에만 열립니다. 4장을 먼저 마친 상태를 전제로 합니다.
+This setup lets the clock be used outside the office. **HTTPS is handled by the front nginx proxy server.** The relay is open only on the internal network over plain HTTP. This chapter assumes Section 4 is already complete.
 
-> **WARNING** — 이 장을 마치면 `GET /clock/usage` 하나가 인터넷에 공개됩니다. relay 토큰이 있어야 값을 줍니다. 토큰이 새면 누구나 사용률 숫자를 볼 수 있습니다(Anthropic 토큰은 새지 않습니다). 새었다고 의심되면 7.2절로 즉시 바꿉니다.
+> **WARNING** — After this chapter, the single endpoint `GET /clock/usage` is exposed to the internet. It returns values only with the relay token. If the token leaks, anyone can see the usage numbers (the Anthropic token does not leak). If you suspect a leak, rotate it immediately per Section 7.2.
 
-### 5.1 구성도
+### 5.1 Architecture
 
 ```
-[시계] 회사 밖 Wi-Fi
-   │ HTTPS 443  https://clock.example.com/clock/usage   (TLS 1.2, ISRG Root X1/X2 로 검증)
+[Clock] Wi-Fi outside the office
+   │ HTTPS 443  https://clock.example.com/clock/usage   (TLS 1.2, verified against ISRG Root X1/X2)
    ▼
-[공유기] TCP 443(·80) 포워딩 → nginx 서버            ← 이미 nginx 로 쓰고 있는 포워딩을 그대로 씀
+[Router] TCP 443(·80) forwarding → nginx server      ← reuses the forwarding already used for nginx
    ▼
-[nginx 프록시 서버]  TLS 종료 · Let's Encrypt 인증서(fullchain) · GET /clock/usage 만 전달 · IP 당 분당 6회 제한
-   │ HTTP  http://<relay 내부망 IP>:8787   X-Forwarded-For = 시계의 실제 접속 주소
+[nginx proxy server]  TLS termination · Let's Encrypt certificate (fullchain) · forwards GET /clock/usage only · 6 req/min per IP
+   │ HTTP  http://<relay internal IP>:8787   X-Forwarded-For = clock's real client address
    ▼
-[relay LXC]  8787 은 nginx 서버 IP 에서만 열림 · 토큰 확인 · 10회 틀리면 그 주소 15분 차단
+[relay LXC]  8787 open only to the nginx server IP · token check · 10 wrong tokens lock that address out for 15 min
    │ HTTPS
    ▼
 api.anthropic.com / platform.claude.com
 ```
 
-| 구간 | 포트 | 비고 |
+| Segment | Port | Notes |
 |---|---|---|
-| 인터넷 → nginx | TCP 443 | 기존 nginx 의 443 을 그대로 씁니다. 새 포워딩은 필요 없습니다 |
-| 인터넷 → nginx | TCP 80 | 인증서 발급·갱신(HTTP-01)을 쓰는 경우만. 기존 설정을 따릅니다 |
-| nginx 서버 → relay | TCP 8787 | 내부망. relay 서버 방화벽에서 **nginx 서버 IP 만** 허용 |
+| Internet → nginx | TCP 443 | Reuse the existing nginx 443. No new forwarding needed |
+| Internet → nginx | TCP 80 | Only if you use HTTP-01 for certificate issuance/renewal. Follow the existing setup |
+| nginx server → relay | TCP 8787 | Internal network. On the relay server firewall, allow **only the nginx server IP** |
 
-### 5.2 준비물
+### 5.2 Prerequisites
 
-1. **도메인 하나.** 예: `clock.example.com`. 아래의 `clock.example.com` 은 모두 실제 도메인으로 바꿉니다. 기존 nginx 가 쓰는 도메인의 하위 이름이면 됩니다.
-2. **DNS A 레코드**: `clock.example.com` → nginx 서버가 받는 공인 IP. 기존 서비스 도메인과 같은 IP 입니다.
+1. **One domain.** E.g. `clock.example.com`. Replace every `clock.example.com` below with your real domain. A subdomain of a domain the existing nginx already serves is fine.
+2. **DNS A record**: `clock.example.com` → the public IP that the nginx server receives on. This is the same IP as the existing service domains.
    ```bash
    getent ahostsv4 clock.example.com | head -1
    ```
-3. **relay 서버 내부망 IP**(`RELAY_HOST`)와 **nginx 서버가 relay 로 접속할 때 쓰는 내부망 IP**(`NGINX_PROXY_IP`)를 확인합니다. 각 서버에서 `hostname -I`.
-4. **nginx 서버에서 relay 로 접속 가능한지** 확인합니다(5.3절을 마친 뒤).
+3. Find the **relay server's internal IP** (`RELAY_HOST`) and the **internal IP the nginx server uses to connect to the relay** (`NGINX_PROXY_IP`). Run `hostname -I` on each server.
+4. Confirm **the nginx server can reach the relay** (after completing Section 5.3).
    ```bash
-   curl -s http://RELAY_HOST:8787/healthz       # nginx 서버에서. {"ok":true}
+   curl -s http://RELAY_HOST:8787/healthz       # on the nginx server. {"ok":true}
    ```
 
-### 5.3 relay 를 nginx 서버에만 열기 (relay 서버에서)
+### 5.3 Opening the relay to the nginx server only (on the relay server)
 
 ```bash
 E=/etc/clock-usage-relay/relay.env
-sed -i 's/^RELAY_BIND=.*/RELAY_BIND=0.0.0.0/' $E                        # 또는 relay 서버의 내부망 IP
-sed -i 's/^RELAY_TRUSTED_PROXIES=.*/RELAY_TRUSTED_PROXIES=NGINX_PROXY_IP/' $E   # NGINX_PROXY_IP 를 실제 값으로
+sed -i 's/^RELAY_BIND=.*/RELAY_BIND=0.0.0.0/' $E                        # or the relay server's internal IP
+sed -i 's/^RELAY_TRUSTED_PROXIES=.*/RELAY_TRUSTED_PROXIES=NGINX_PROXY_IP/' $E   # replace NGINX_PROXY_IP with the real value
 grep -q '^RELAY_TRUSTED_PROXIES=' $E || echo 'RELAY_TRUSTED_PROXIES=NGINX_PROXY_IP' >> $E
 systemctl restart clock-usage-relay
-journalctl -u clock-usage-relay -n 5 --no-pager      # "only loopback" 경고가 없어야 합니다
+journalctl -u clock-usage-relay -n 5 --no-pager      # there must be no "only loopback" warning
 ss -ltnp | grep 8787
 ```
 
-방화벽 — 8787 을 nginx 서버 IP 에서만 받습니다. 둘 중 하나를 씁니다.
+Firewall — accept 8787 only from the nginx server IP. Use one of the following.
 
-- LXC 안 `ufw`:
+- `ufw` inside the LXC:
   ```bash
   ufw allow from NGINX_PROXY_IP to any port 8787 proto tcp
   ufw deny 8787/tcp
   ufw status numbered
   ```
-- Proxmox 방화벽: 해당 LXC 의 Firewall → Add → Direction `in`, Action `ACCEPT`, Source `NGINX_PROXY_IP`, Dest. port `8787`, Protocol `tcp`. 그 아래에 같은 포트 `DROP` 규칙을 둡니다.
+- Proxmox firewall: on that LXC, Firewall → Add → Direction `in`, Action `ACCEPT`, Source `NGINX_PROXY_IP`, Dest. port `8787`, Protocol `tcp`. Below it, add a `DROP` rule for the same port.
 
-> **CAUTION** — nginx → relay 구간은 평문 HTTP 입니다. 이 구간에는 시계의 relay 토큰이 그대로 흐릅니다. nginx 서버와 relay 서버가 같은 신뢰 내부망에 있을 때만 이 구성을 씁니다. 공유기 포트 포워딩에 8787 을 추가하지 않습니다.
+> **CAUTION** — The nginx → relay segment is plain HTTP. The clock's relay token travels over it in the clear. Use this setup only when the nginx server and the relay server are on the same trusted internal network. Do not add 8787 to the router's port forwarding.
 
-### 5.4 nginx 설정 넣기 (nginx 서버에서)
+### 5.4 Adding the nginx config (on the nginx server)
 
-동봉 파일 `deploy/nginx/clock-usage-relay.conf` 를 씁니다.
+Use the bundled file `deploy/nginx/clock-usage-relay.conf`.
 
 ```nginx
 limit_req_zone $binary_remote_addr zone=clock_usage:1m rate=6r/m;
@@ -319,7 +321,7 @@ server {
     ssl_certificate     /etc/letsencrypt/live/clock.example.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/clock.example.com/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:...;   # 파일 전문 참조
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:...;   # see the full file
 
     location = /clock/usage {
         limit_except GET { deny all; }
@@ -333,151 +335,151 @@ server {
 }
 ```
 
-| 줄 | 뜻 |
+| Line | Meaning |
 |---|---|
-| `limit_req_zone` · `limit_req` | 한 접속 주소당 분당 6회(순간 5회 여유)까지만 relay 로 넘깁니다. 시계는 10분마다(실패 시 2분마다) 조회하므로 정상 사용에는 걸리지 않습니다. 넘으면 nginx 가 `429` |
-| `upstream … server RELAY_HOST:8787` | relay 서버 내부망 주소 |
-| `ssl_certificate … fullchain.pem` | **반드시 `fullchain.pem`.** `cert.pem` 만 쓰면 중간 인증서가 빠져 시계의 CA 검증이 실패합니다 |
-| `ssl_protocols TLSv1.2 TLSv1.3` | 시계(ESP8266 BearSSL)는 **TLS 1.2 만** 지원합니다. TLS 1.2 를 끄면 시계가 접속하지 못합니다 |
-| `ssl_ciphers` | 시계가 지원하는 ECDHE + AES-GCM / CHACHA20 조합 |
-| `location = /clock/usage` | 이 경로만 relay 로 넘깁니다. `/healthz` 를 포함한 나머지는 `404` |
-| `limit_except GET { deny all; }` | GET 외 메서드는 `403` |
-| `proxy_set_header X-Forwarded-For $remote_addr` | 시계가 보낸 `X-Forwarded-For` 를 버리고 실제 접속 주소로 **덮어씁니다.** 위조로 relay 차단을 피할 수 없습니다 |
-| `proxy_read_timeout 40s` | relay 가 상위 호출(최대 15초)과 토큰 갱신을 기다리는 시간보다 길게 |
+| `limit_req_zone` · `limit_req` | Passes at most 6 requests per minute per client address (burst allowance of 5) to the relay. The clock polls every 10 minutes (every 2 minutes after a failure), so normal use never hits this. Beyond it, nginx returns `429` |
+| `upstream … server RELAY_HOST:8787` | The relay server's internal address |
+| `ssl_certificate … fullchain.pem` | **Must be `fullchain.pem`.** With `cert.pem` alone the intermediate certificate is missing and the clock's CA verification fails |
+| `ssl_protocols TLSv1.2 TLSv1.3` | The clock (ESP8266 BearSSL) supports **TLS 1.2 only**. If TLS 1.2 is disabled, the clock cannot connect |
+| `ssl_ciphers` | ECDHE + AES-GCM / CHACHA20 combinations the clock supports |
+| `location = /clock/usage` | Only this path is passed to the relay. Everything else, including `/healthz`, gets `404` |
+| `limit_except GET { deny all; }` | Methods other than GET get `403` |
+| `proxy_set_header X-Forwarded-For $remote_addr` | Discards any `X-Forwarded-For` sent by the client and **overwrites** it with the real client address. Spoofing cannot be used to evade the relay lockout |
+| `proxy_read_timeout 40s` | Longer than the time the relay may wait for the upstream call (up to 15 s) plus a token refresh |
 
-설치:
+Installation:
 
 ```bash
 cp deploy/nginx/clock-usage-relay.conf /etc/nginx/conf.d/clock-usage-relay.conf
-sed -i 's/clock\.example\.com/<실제 도메인>/g; s/RELAY_HOST/<relay 내부망 IP>/' /etc/nginx/conf.d/clock-usage-relay.conf
+sed -i 's/clock\.example\.com/<actual domain>/g; s/RELAY_HOST/<relay internal IP>/' /etc/nginx/conf.d/clock-usage-relay.conf
 nginx -t && systemctl reload nginx
 ```
 
-- 파일은 `http { }` 안에서 읽히는 곳에 둡니다. Debian 기본 `nginx.conf` 는 `conf.d/*.conf` 와 `sites-enabled/*` 를 모두 `http` 안에서 읽습니다. `limit_req_zone` 이 `http` 밖에 있으면 `nginx -t` 가 `"limit_req_zone" directive is not allowed here` 로 실패합니다.
-- 기존 설정에 같은 `server_name` 이 있으면 `nginx -t` 가 `conflicting server name` 경고를 냅니다. 한쪽을 지웁니다.
-- 기존 nginx 의 **기본(default) 443 서버**가 `ssl_protocols TLSv1.3` 만 허용하면 이 파일의 설정과 관계없이 TLS 1.2 가 막힐 수 있습니다(nginx 는 SNI 이전 단계에서 기본 서버 값을 씁니다). 5.6절의 TLS 1.2 확인으로 판정합니다.
-- nginx 앞에 Cloudflare 프록시나 다른 L4/L7 프록시가 또 있으면 `$remote_addr` 이 그 프록시 주소가 됩니다. 그때는 nginx `real_ip_header`·`set_real_ip_from` 으로 실제 주소를 먼저 복원해야 합니다.
-- 기본 접근 로그 형식에는 `Authorization` 헤더가 남지 않습니다. 로그 형식에 `$http_authorization` 을 넣지 않습니다.
-- HTTP(80)는 이 파일에 넣지 않았습니다. 기존 80 → 443 리다이렉트가 있어도 됩니다. 시계는 리다이렉트를 따라가지 않으므로 시계 URL 은 처음부터 `https://` 로 씁니다.
+- Place the file where it is read inside `http { }`. The Debian default `nginx.conf` reads both `conf.d/*.conf` and `sites-enabled/*` inside `http`. If `limit_req_zone` is outside `http`, `nginx -t` fails with `"limit_req_zone" directive is not allowed here`.
+- If the existing config already has the same `server_name`, `nginx -t` emits a `conflicting server name` warning. Remove one of them.
+- If the existing nginx **default 443 server** allows only `ssl_protocols TLSv1.3`, TLS 1.2 may be blocked regardless of this file's settings (nginx uses the default server's values before SNI is processed). Use the TLS 1.2 check in Section 5.6 to determine this.
+- If there is another Cloudflare proxy or other L4/L7 proxy in front of nginx, `$remote_addr` becomes that proxy's address. In that case, first restore the real address with nginx `real_ip_header` and `set_real_ip_from`.
+- The default access log format does not record the `Authorization` header. Do not add `$http_authorization` to the log format.
+- HTTP (80) is not included in this file. An existing 80 → 443 redirect is fine. The clock does not follow redirects, so write the clock URL with `https://` from the start.
 
-### 5.5 인증서
+### 5.5 Certificates
 
-시계의 기본 검증 방식(`CA`)은 **Let's Encrypt (ISRG Root X1·X2) 계열 인증서만** 통과시킵니다.
+The clock's default verification mode (`CA`) accepts **only Let's Encrypt (ISRG Root X1·X2) chain certificates**.
 
-| nginx 인증서 | 시계 설정 |
+| nginx certificate | Clock setting |
 |---|---|
-| Let's Encrypt (certbot 등) | `CA` (기본). 갱신돼도 그대로 동작 |
-| Let's Encrypt 와일드카드(`*.example.com`) | `CA`. 위와 같습니다 |
-| 그 밖의 인증기관·사내 CA·자체 서명 | `fingerprint`. 갱신 때마다 시계의 지문을 바꿔야 합니다 |
+| Let's Encrypt (certbot, etc.) | `CA` (default). Keeps working after renewal |
+| Let's Encrypt wildcard (`*.example.com`) | `CA`. Same as above |
+| Any other CA, internal CA, or self-signed | `fingerprint`. The fingerprint on the clock must be updated on every renewal |
 
-Let's Encrypt 인증서가 아직 없으면 nginx 서버에서 발급합니다(certbot 예).
+If you do not yet have a Let's Encrypt certificate, issue one on the nginx server (certbot example).
 
 ```bash
 apt install -y certbot python3-certbot-nginx
-certbot certonly --nginx -d clock.example.com        # /etc/letsencrypt/live/clock.example.com/ 에 생성
-systemctl list-timers | grep certbot                 # 자동 갱신 타이머 확인
+certbot certonly --nginx -d clock.example.com        # created in /etc/letsencrypt/live/clock.example.com/
+systemctl list-timers | grep certbot                 # check the auto-renewal timer
 ```
 
-- 발급 전에는 `ssl_certificate` 경로가 없어 `nginx -t` 가 실패합니다. 발급 → 5.4절 설치 순서로 합니다.
-- certbot 은 갱신 후 nginx 를 다시 읽습니다(`--nginx` 플러그인). 다른 방식으로 발급했다면 갱신 후 `systemctl reload nginx` 가 실행되도록 deploy hook 을 둡니다.
+- Before issuance, the `ssl_certificate` path does not exist and `nginx -t` fails. Issue first, then install per Section 5.4.
+- certbot reloads nginx after renewal (`--nginx` plugin). If you issued the certificate another way, set up a deploy hook so `systemctl reload nginx` runs after renewal.
 
-### 5.6 회사 밖에서 확인
+### 5.6 Checking from outside the office
 
-회사 망이 아닌 곳(휴대폰 테더링 등)에서 합니다. 토큰이 셸 기록에 남지 않게 `read -s` 로 입력합니다.
+Do this from outside the company network (e.g. phone tethering). Enter the token with `read -s` so it does not stay in shell history.
 
 ```bash
 D=clock.example.com
-curl -s -o /dev/null -w '%{http_code}\n' https://$D/clock/usage           # 401 (토큰 없음, relay 응답)
-read -rs TOKEN; echo                                                      # relay 토큰 붙여넣기 → Enter
+curl -s -o /dev/null -w '%{http_code}\n' https://$D/clock/usage           # 401 (no token, relay response)
+read -rs TOKEN; echo                                                      # paste the relay token → Enter
 curl -s -H "Authorization: Bearer $TOKEN" https://$D/clock/usage; echo    # 200, {"updated":…,"status":"ok"}
-curl -s -o /dev/null -w '%{http_code}\n' https://$D/healthz              # 404 (공개 안 함)
+curl -s -o /dev/null -w '%{http_code}\n' https://$D/healthz              # 404 (not exposed)
 curl -s -o /dev/null -w '%{http_code}\n' -X POST https://$D/clock/usage   # 403
 unset TOKEN
 ```
 
-TLS 1.2 와 인증서 체인 확인:
+Check TLS 1.2 and the certificate chain:
 ```bash
 openssl s_client -connect $D:443 -servername $D -tls1_2 -cipher ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256 </dev/null 2>/dev/null | grep -E 'Protocol|Cipher is'
 openssl s_client -connect $D:443 -servername $D -showcerts </dev/null 2>/dev/null | grep -E '^ *[0-9] s:|^ *i:|Verify return code'
 ```
 
-| 확인 | 정상 |
+| Check | Expected |
 |---|---|
-| 첫 명령 | `Protocol : TLSv1.2` 와 ECDHE 암호 이름이 나옵니다. 연결 실패면 5.4절 기본 서버 `ssl_protocols` 를 봅니다 |
+| First command | Shows `Protocol : TLSv1.2` and an ECDHE cipher name. If the connection fails, check the default server's `ssl_protocols` per Section 5.4 |
 | `Verify return code` | `0 (ok)` |
-| 체인 | 발급자(`i:`)에 `CN=ISRG Root X1` 또는 `CN=ISRG Root X2` 가 **하나 이상** 있어야 합니다. 체인이 `0 s:` 한 줄뿐이면 `fullchain.pem` 이 아닙니다 |
+| Chain | The issuer (`i:`) lines must include **at least one** `CN=ISRG Root X1` or `CN=ISRG Root X2`. If the chain is only the single `0 s:` line, it is not `fullchain.pem` |
 
-relay 쪽에서 실제 접속 주소가 보이는지 확인합니다(relay 서버):
+Confirm that the relay sees the real client address (on the relay server):
 ```bash
-journalctl -u clock-usage-relay --since '-5 min' --no-pager | tail -5    # 회사 밖 공인 IP 가 찍혀야 합니다. nginx 서버 IP 가 찍히면 5.3절 RELAY_TRUSTED_PROXIES 를 다시 봅니다
+journalctl -u clock-usage-relay --since '-5 min' --no-pager | tail -5    # should show the public IP outside the office. If it shows the nginx server IP, recheck RELAY_TRUSTED_PROXIES in Section 5.3
 ```
 
-### 5.7 되돌리기
+### 5.7 Rolling back
 
-1. 시계 설정 페이지에서 JSON URL 을 비우고 저장합니다.
-2. nginx 서버: `rm /etc/nginx/conf.d/clock-usage-relay.conf && nginx -t && systemctl reload nginx`. **이것만으로 외부 공개가 끝납니다.** 다른 서비스의 포워딩은 그대로 둡니다.
-3. (선택) 인증서 삭제: `certbot delete --cert-name clock.example.com`.
-4. (선택) DNS A 레코드 삭제.
-5. relay 까지 지우려면 9장을 따릅니다.
+1. On the clock settings page, clear the JSON URL and save.
+2. nginx server: `rm /etc/nginx/conf.d/clock-usage-relay.conf && nginx -t && systemctl reload nginx`. **This alone ends the external exposure.** Leave the forwarding for other services as is.
+3. (Optional) Delete the certificate: `certbot delete --cert-name clock.example.com`.
+4. (Optional) Delete the DNS A record.
+5. To remove the relay as well, follow Section 9.
 
 ---
 
-## 6. 시계 설정 순서
+## 6. Clock setup steps
 
-시계 펌웨어 **0.1.3** 이 필요합니다(`hardware/README.md` 9.3절).
+Requires clock firmware **0.1.3** (`hardware/README.md` Section 9.3).
 
-1. 시계와 같은 Wi-Fi 에서 `http://<시계 IP>/` 에 접속해 `admin` 으로 로그인합니다.
+1. On the same Wi-Fi as the clock, open `http://<clock IP>/` and log in as `admin`.
 2. **JSON URL**: `https://clock.example.com/clock/usage`
-3. **Bearer token**: `/var/lib/clock-usage-relay/clock_token` 의 값
-4. **HTTPS certificate check**: `CA (Let's Encrypt ISRG Root X1/X2) - default` (5.5절 표에 따라 `fingerprint`)
-5. **TLS SHA-1 fingerprint**: `CA` 면 비웁니다. `fingerprint` 면 아래 명령 값(콜론 포함 그대로)
+3. **Bearer token**: the value of `/var/lib/clock-usage-relay/clock_token`
+4. **HTTPS certificate check**: `CA (Let's Encrypt ISRG Root X1/X2) - default` (or `fingerprint`, per the table in Section 5.5)
+5. **TLS SHA-1 fingerprint**: leave empty for `CA`. For `fingerprint`, use the value from the command below (as is, including colons)
    ```bash
    openssl s_client -connect clock.example.com:443 -servername clock.example.com </dev/null 2>/dev/null | openssl x509 -noout -fingerprint -sha1
    ```
-6. **Save** 를 누릅니다.
-7. 설정 페이지 맨 위 `Usage feed` 가 `OK, 0 min ago`, 시계 화면 머리글이 `HH:MM 기준` 이면 정상입니다. 부팅 직후 잠깐 `시각 동기화 대기` 는 정상입니다.
+6. Click **Save**.
+7. It is working if `Usage feed` at the top of the settings page shows `OK, 0 min ago` and the clock screen header shows `HH:MM 기준` ("as of HH:MM"). Briefly showing `시각 동기화 대기` ("waiting for time sync") right after boot is normal.
 
-| 설정 페이지 문구 | 원인 |
+| Settings page message | Cause |
 |---|---|
-| `HTTP 401` | 토큰 불일치 |
-| `HTTP 429` | relay 차단(7장) 또는 nginx 요청 수 제한 |
-| `HTTP 404` | URL 경로 오타 (`/clock/usage` 정확히) |
-| `HTTP 301` / `302` | URL 이 `http://`. `https://` 로 바꿉니다 |
-| `HTTP 502` / `504` | nginx 가 relay 에 닿지 못함. 5.2절 4번, 5.3절 방화벽 |
-| `connection failed (TLS …)` | 인증서 검증 실패(5.5·5.6절) 또는 시계 메모리 부족(`hardware/README.md` 8.1절) |
-| `connection failed` | 도메인·포워딩·회선 문제. 5.6절 `curl` 부터 |
+| `HTTP 401` | Token mismatch |
+| `HTTP 429` | Relay lockout (Section 7) or nginx rate limit |
+| `HTTP 404` | Typo in the URL path (must be exactly `/clock/usage`) |
+| `HTTP 301` / `302` | URL is `http://`. Change it to `https://` |
+| `HTTP 502` / `504` | nginx cannot reach the relay. Section 5.2 item 4, Section 5.3 firewall |
+| `connection failed (TLS …)` | Certificate verification failure (Sections 5.5 and 5.6) or the clock is out of memory (`hardware/README.md` Section 8.1) |
+| `connection failed` | Domain, forwarding, or line problem. Start with the `curl` checks in Section 5.6 |
 
 ---
 
-## 7. 무차별 대입 방어와 토큰 관리
+## 7. Brute-force protection and token management
 
-### 7.1 세 겹의 방어
+### 7.1 Three layers of defense
 
-1. **토큰 길이** — 4.3(가)는 무작위 43자를 만듭니다. 손으로 정한 짧은 값을 쓰지 않습니다.
+1. **Token length** — 4.3 (a) generates 43 random characters. Do not use a short hand-picked value.
    ```bash
    tr -d '\n' < /var/lib/clock-usage-relay/clock_token | wc -c     # 43
    ```
-2. **nginx 요청 수 제한** — 접속 주소당 분당 6회(순간 5회 여유). 넘으면 nginx 가 `429` 를 줍니다.
-3. **relay 차단** — 한 접속 주소가 10분 안에 토큰을 10번 틀리면 15분 동안 `429 {"error":"too_many_failures"}`. 차단 중에는 맞는 토큰도 거부합니다.
+2. **nginx rate limit** — 6 requests per minute per client address (burst allowance of 5). Beyond it, nginx returns `429`.
+3. **Relay lockout** — If a client address sends a wrong token 10 times within 10 minutes, it gets `429 {"error":"too_many_failures"}` for 15 minutes. During lockout even a correct token is rejected.
    ```bash
    journalctl -u clock-usage-relay --since today | grep 'locked out'
    ```
 
-> **NOTE** — 시계 자신이 틀린 토큰으로 계속 조회하면(실패 시 2분 간격) 약 20분 뒤 그 시계도 15분간 막힙니다. 토큰을 다시 넣고 15분 기다리거나 relay 서버에서 `systemctl restart clock-usage-relay` 로 차단을 풉니다.
+> **NOTE** — If the clock itself keeps polling with a wrong token (every 2 minutes after failures), that clock also gets locked out for 15 minutes after about 20 minutes. Re-enter the token and wait 15 minutes, or clear the lockout with `systemctl restart clock-usage-relay` on the relay server.
 
-### 7.2 토큰 교체
+### 7.2 Rotating the token
 
 ```bash
 umask 077; python3 -c 'import secrets;print(secrets.token_urlsafe(32))' > /var/lib/clock-usage-relay/clock_token
 chown clockrelay:clockrelay /var/lib/clock-usage-relay/clock_token; systemctl restart clock-usage-relay
 ```
-그다음 시계 설정 페이지의 Bearer token 을 새 값으로 바꿉니다.
+Then change the Bearer token on the clock settings page to the new value.
 
 ---
 
-## 8. 업그레이드 (1.1.0 → 1.2.0)
+## 8. Upgrading (1.1.0 → 1.2.0)
 
-relay 서버에서 `server/` 폴더로 이동해 실행합니다.
+On the relay server, change to the `server/` folder and run:
 
 ```bash
 install -m 644 clock_usage_relay.py /opt/clock-usage-relay/
@@ -485,58 +487,58 @@ systemctl restart clock-usage-relay
 journalctl -u clock-usage-relay -n 5 --no-pager
 ```
 
-- 1.2.0 은 설정 파일 형식이 같습니다. 5.3절의 `RELAY_BIND`·`RELAY_TRUSTED_PROXIES` 만 nginx 구성에 맞게 바꿉니다.
-- `RELAY_TRUSTED_PROXIES` 에 IP·CIDR 이 아닌 값이 있으면 1.2.0 은 기동하지 않습니다(`invalid address or CIDR`). 1.1.0 은 이런 값을 조용히 무시했습니다.
-- 1.1.0 절차대로 Caddy 를 이미 설치했다면 nginx 로 옮긴 뒤 지웁니다.
+- 1.2.0 uses the same settings file format. Change only `RELAY_BIND` and `RELAY_TRUSTED_PROXIES` from Section 5.3 to fit the nginx setup.
+- If `RELAY_TRUSTED_PROXIES` contains a value that is not an IP or CIDR, 1.2.0 refuses to start (`invalid address or CIDR`). 1.1.0 silently ignored such values.
+- If you already installed Caddy following the 1.1.0 procedure, remove it after moving to nginx.
   ```bash
   systemctl disable --now caddy
   apt purge -y caddy
   rm -f /etc/apt/sources.list.d/caddy-stable.list /usr/share/keyrings/caddy-stable-archive-keyring.gpg
   rm -rf /etc/caddy /var/lib/caddy
   ```
-  공유기에서 Caddy LXC 로 가던 80·443 포워딩도 지웁니다.
+  Also remove the 80/443 forwarding on the router that pointed to the Caddy LXC.
 
 ---
 
-## 9. 제거
+## 9. Uninstalling
 
 ```bash
 systemctl disable --now clock-usage-relay
 rm -f /etc/systemd/system/clock-usage-relay.service && systemctl daemon-reload
-rm -rf /opt/clock-usage-relay /etc/clock-usage-relay /var/lib/clock-usage-relay   # 자격증명 파일 포함 삭제
+rm -rf /opt/clock-usage-relay /etc/clock-usage-relay /var/lib/clock-usage-relay   # deletes the credentials file too
 userdel clockrelay
 ```
 
-relay 를 지워도 그 로그인은 Anthropic 쪽에 남아 있습니다. 완전히 끊으려면 claude.ai 설정에서 해당 세션을 해제합니다. nginx 쪽은 5.7절입니다.
+Removing the relay leaves that login active on the Anthropic side. To cut it off completely, revoke the session in claude.ai settings. For the nginx side, see Section 5.7.
 
 ---
 
-## 10. 테스트
+## 10. Tests
 
-### 10.1 단위 시험
+### 10.1 Unit tests
 
 ```bash
 cd server
 python3 -m unittest discover -s tests -v
 ```
 
-목(mock) 상위 서버를 띄워 32건을 검사합니다. 계약 형식·값, OAuth 토큰이 응답에 섞이지 않음, 시계 인증 거부, 캐시, 401 → 갱신 → 재시도와 회전된 토큰 저장(권한 600), 만료 임박 선갱신, 갱신 실패 시 `stale`, 첫 호출 실패 시 `error`, Fable 경로, 토큰 오입력 차단·만료, 신뢰 프록시의 `X-Forwarded-For` 처리, 1.2.0 추가분(CIDR·IPv4-mapped 신뢰 프록시, 잘못된 값 거부, 설정 누락 경고, IP 가 아닌 `X-Forwarded-For` 무시)이 포함됩니다.
+Starts a mock upstream server and runs 32 checks. They cover: contract format and values, OAuth tokens never leaking into responses, clock auth rejection, caching, 401 → refresh → retry and saving the rotated token (mode 600), proactive refresh near expiry, `stale` on refresh failure, `error` on first-call failure, the Fable path, wrong-token lockout and its expiry, `X-Forwarded-For` handling for trusted proxies, and the 1.2.0 additions (CIDR and IPv4-mapped trusted proxies, rejection of invalid values, missing-setting warning, ignoring non-IP `X-Forwarded-For`).
 
-### 10.2 nginx 연동 시험
+### 10.2 nginx integration tests
 
 ```bash
 cd server
-tests/integration/run_nginx_it.sh /usr/sbin/nginx       # nginx 실행 파일 경로. root 불필요
+tests/integration/run_nginx_it.sh /usr/sbin/nginx       # path to the nginx executable. root not required
 ```
 
-동봉 `deploy/nginx/clock-usage-relay.conf` 를 그대로 쓰고, 주소·인증서만 시험용으로 바꿉니다. nginx 는 `127.0.0.3` 에서 relay(`127.0.0.2:18787`)로 접속해 **별도 서버**를 흉내 냅니다. 2026-11-15 결과(nginx 1.26.3, 11건 통과):
+Uses the bundled `deploy/nginx/clock-usage-relay.conf` as is, replacing only the addresses and certificate with test values. nginx connects from `127.0.0.3` to the relay (`127.0.0.2:18787`) to simulate a **separate server**. Results on 2026-11-15 (nginx 1.26.3, 11 passed):
 
-| 검사 | 결과 |
+| Check | Result |
 |---|---|
-| TLS 1.2 + `ECDHE-ECDSA-AES128-GCM-SHA256` 핸드셰이크 후 토큰 있으면 200 | 통과 |
-| 토큰 없음 401, `/healthz`·`/` 404, POST 403 | 통과 |
-| 6회 초과 연속 요청 시 nginx 429 | 통과 |
-| `X-Forwarded-For` 를 위조해도 실제 접속 주소 기준으로 10회 실패 후 relay 429 | 통과 |
-| relay 로그의 접속 주소가 nginx 주소가 아닌 실제 접속 주소 | 통과 |
-| nginx 접근 로그·relay 로그에 토큰 0건 | 통과 |
-| 상위 호출 1회(캐시) | 통과 |
+| 200 with a token after a TLS 1.2 + `ECDHE-ECDSA-AES128-GCM-SHA256` handshake | Pass |
+| No token 401, `/healthz` and `/` 404, POST 403 | Pass |
+| nginx 429 on more than 6 consecutive requests | Pass |
+| relay 429 after 10 failures keyed on the real client address, even with a spoofed `X-Forwarded-For` | Pass |
+| Client address in the relay log is the real client address, not the nginx address | Pass |
+| 0 tokens in the nginx access log and the relay log | Pass |
+| 1 upstream call (cache) | Pass |
