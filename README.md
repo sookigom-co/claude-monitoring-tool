@@ -43,21 +43,6 @@ Binaries are published on GitHub Releases. The repository does not contain binar
 | `hardware-v0.1.3` | `smartclock-0.1.3-firmware.bin`, `lcd-diag-0.1.3-firmware.bin`, `SHA256SUMS` (for rollback) |
 | `server-v1.2.0` | `clock-usage-relay-1.2.0.tar.gz`, `SHA256SUMS` |
 
-### History
-
-| Task | Description |
-|---|---|
-| SOO-596 | Stock firmware analysis, custom firmware feasibility review, flashing equipment guide |
-| SOO-597 | Firmware 0.1.0, then a fix for the LCD transfer alignment defect (0.1.1 LCD-fix build) |
-| SOO-598 | relay 1.0.0 |
-| SOO-599 | Firmware 0.1.1 (relay contract applied) |
-| SOO-600 | Firmware 0.1.2 (HTTPS CA verification), relay 1.1.0 (Caddy publishing procedure) |
-| SOO-612 | This repository created. hardware / server split, firmware 0.1.3 (0.1.2 + LCD fix merged), relay 1.2.0 (front nginx setup) |
-| SOO-618 | Screen layout mockups — time and date + 2 ring gauges, design A (concentric rings) · B (clock on top + gauges below) · C (left/right half rings) |
-| SOO-619 | Firmware 0.2.0 — 3 screen designs with fixed/auto-cycle setting, ring gauges, redraw only changed areas |
-| SOO-621 | Firmware 0.2.0 added to this repository, Release `hardware-v0.2.0` |
-| SOO-623 | English documentation: README in English and Korean, hardware/server manuals split into English (`README.md`) and Korean (`README.ko.md`) |
-
 ### Secrets
 
 This repository contains no tokens, credentials, or Wi-Fi passwords. `.gitignore` blocks `credentials.json`, `clock_token`, `.env`-type files, and flash dumps.
@@ -100,21 +85,6 @@ GitHub Releases 에 올립니다. 저장소에는 바이너리를 넣지 않습�
 | `hardware-v0.2.0` (최신) | `smartclock-0.2.0-firmware.bin`, `lcd-diag-0.2.0-firmware.bin`, `SHA256SUMS` |
 | `hardware-v0.1.3` | `smartclock-0.1.3-firmware.bin`, `lcd-diag-0.1.3-firmware.bin`, `SHA256SUMS` (되돌리기용) |
 | `server-v1.2.0` | `clock-usage-relay-1.2.0.tar.gz`, `SHA256SUMS` |
-
-### 이력
-
-| 태스크 | 내용 |
-|---|---|
-| SOO-596 | 순정 펌웨어 분석, 커스텀 펌웨어 가능성 검토, 기록 장비 안내 |
-| SOO-597 | 펌웨어 0.1.0, 이후 LCD 전송 정렬 결함 수정(0.1.1 LCD 수정판) |
-| SOO-598 | relay 1.0.0 |
-| SOO-599 | 펌웨어 0.1.1 (relay 계약 반영) |
-| SOO-600 | 펌웨어 0.1.2 (HTTPS CA 검증), relay 1.1.0 (Caddy 공개 절차) |
-| SOO-612 | 이 저장소 생성. hardware / server 분리, 펌웨어 0.1.3(0.1.2 + LCD 수정 통합), relay 1.2.0(앞단 nginx 구성) |
-| SOO-618 | 화면 레이아웃 시안 — 시각·날짜 + 원형 게이지 2개, 디자인 A(동심원 링) · B(위 시계 + 아래 게이지) · C(좌우 반원 링) |
-| SOO-619 | 펌웨어 0.2.0 — 화면 디자인 3종과 고정/자동 순환 설정, 원형 게이지, 바뀐 부분만 다시 그리기 |
-| SOO-621 | 펌웨어 0.2.0 을 이 저장소에 반영, Release `hardware-v0.2.0` |
-| SOO-623 | 문서 영문화 — README 영어·한국어 병기, hardware/server 설명서를 영어(`README.md`)·한국어(`README.ko.md`)로 분리 |
 
 ### 비밀값
 
