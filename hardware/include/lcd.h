@@ -22,6 +22,13 @@ constexpr uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) {
   return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
 }
 
+// One coloured stretch of a ring stroke, in clock degrees: 0 is 12 o'clock and angles grow clockwise.
+struct ArcSpan {
+  float start;
+  float sweep;  // 0 draws nothing, 360 or more draws a closed ring
+  uint16_t color;
+};
+
 // Minimal ST7789 240x240 driver with hardware SPI on GPIO13/14 and bit-banged SPI on any other pins.
 class Lcd {
  public:
@@ -37,6 +44,8 @@ class Lcd {
   // Draws text into a box of boxW x lineHeight, repainting the whole box so updates never flicker.
   void drawText(const Font &font, int16_t x, int16_t y, int16_t boxW, Align align, const char *utf8, uint16_t fg,
                 uint16_t bg);
+  // Draws a round-capped ring stroke from spans, writing only the pixels the ring covers.
+  void drawRing(float cx, float cy, float rMid, float halfW, const ArcSpan *spans, uint8_t n, uint16_t bg);
 
  private:
   LcdPins p_{};
@@ -51,6 +60,7 @@ class Lcd {
   void command(uint8_t cmd);
   void commandData(uint8_t cmd, const uint8_t *data, size_t n);
   void setWindow(int16_t x, int16_t y, int16_t w, int16_t h);
+  void writeRun(int16_t x, int16_t y, int16_t w, const uint8_t *pixels);
   static const Glyph *findGlyph(const Font &font, uint16_t code, Glyph &out);
 };
 

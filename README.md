@@ -1,10 +1,10 @@
 # SmartClock — SD Pro 스마트 클락 개조
 
-SD Pro 스마트 클락(ESP8266)의 순정 펌웨어를 지우고 자체 펌웨어를 올려, 시계와 **Claude 구독 주간 사용률**을 함께 표시하는 프로젝트입니다.
+SD Pro 스마트 클락(ESP8266)의 순정 펌웨어를 지우고 자체 펌웨어를 올려, 시계와 **Claude·Fable 주간 사용률**(원형 게이지, 화면 디자인 3종)을 함께 표시하는 프로젝트입니다.
 
 | 폴더 | 내용 | 현재 버전 | 사용 설명서 |
 |---|---|---|---|
-| [`hardware/`](hardware/) | 시계 펌웨어 (PlatformIO · Arduino ESP8266) | **0.1.3** | [hardware/README.md](hardware/README.md) |
+| [`hardware/`](hardware/) | 시계 펌웨어 (PlatformIO · Arduino ESP8266) | **0.2.0** | [hardware/README.md](hardware/README.md) |
 | [`server/`](server/) | 사용량 중계 서버 `clock-usage-relay` (Python 표준 라이브러리) + 앞단 nginx 설정 | **1.2.0** | [server/README.md](server/README.md) |
 
 ```
@@ -22,7 +22,7 @@ SD Pro 스마트 클락(ESP8266)의 순정 펌웨어를 지우고 자체 펌웨�
 
 1. **relay 설치** — `server/README.md` 4장 (relay 서버)
 2. **nginx 연결·HTTPS 공개** — `server/README.md` 5장 (nginx 서버 + relay 서버 방화벽)
-3. **시계 펌웨어 기록** — `hardware/README.md` 4~7장 (처음 한 번은 USB-시리얼 어댑터로 기록), 이미 우리 펌웨어가 있으면 9.3절(무선 업데이트)
+3. **시계 펌웨어 기록** — `hardware/README.md` 4~7장 (처음 한 번은 USB-시리얼 어댑터로 기록), 이미 우리 펌웨어(0.1.1 LCD 수정판·0.1.3)가 있으면 9.3절(무선 업데이트로 0.2.0)
 4. **시계에 URL·토큰 입력** — `server/README.md` 6장
 
 ## 빌드된 파일
@@ -31,7 +31,8 @@ GitHub Releases 에 올립니다. 저장소에는 바이너리를 넣지 않습�
 
 | 릴리스 | 파일 |
 |---|---|
-| `hardware-v0.1.3` | `smartclock-0.1.3-firmware.bin`, `lcd-diag-0.1.3-firmware.bin`, `SHA256SUMS` |
+| `hardware-v0.2.0` (최신) | `smartclock-0.2.0-firmware.bin`, `lcd-diag-0.2.0-firmware.bin`, `SHA256SUMS` |
+| `hardware-v0.1.3` | `smartclock-0.1.3-firmware.bin`, `lcd-diag-0.1.3-firmware.bin`, `SHA256SUMS` (되돌리기용) |
 | `server-v1.2.0` | `clock-usage-relay-1.2.0.tar.gz`, `SHA256SUMS` |
 
 ## 이력
@@ -44,6 +45,9 @@ GitHub Releases 에 올립니다. 저장소에는 바이너리를 넣지 않습�
 | SOO-599 | 펌웨어 0.1.1 (relay 계약 반영) |
 | SOO-600 | 펌웨어 0.1.2 (HTTPS CA 검증), relay 1.1.0 (Caddy 공개 절차) |
 | SOO-612 | 이 저장소 생성. hardware / server 분리, 펌웨어 0.1.3(0.1.2 + LCD 수정 통합), relay 1.2.0(앞단 nginx 구성) |
+| SOO-618 | 화면 레이아웃 시안 — 시각·날짜 + 원형 게이지 2개, 디자인 A(동심원 링) · B(위 시계 + 아래 게이지) · C(좌우 반원 링) |
+| SOO-619 | 펌웨어 0.2.0 — 화면 디자인 3종과 고정/자동 순환 설정, 원형 게이지, 바뀐 부분만 다시 그리기 |
+| SOO-621 | 펌웨어 0.2.0 을 이 저장소에 반영, Release `hardware-v0.2.0` |
 
 ## 비밀값
 

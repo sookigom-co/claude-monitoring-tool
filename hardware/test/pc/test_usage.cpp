@@ -294,45 +294,77 @@ static int textWidth(const Font &f, const char *s, int *missing = nullptr) {
 }
 
 static void caseLayout() {
-  std::puts("240x240 layout: glyph coverage and widths");
-  const int innerW = 240 - 16;
-  const int itemsY = 142, itemsH = 240 - 142 - 2;
+  std::puts("0.2.0 screens: glyph coverage and widths");
   int missing = 0;
-  const char *koreanS[] = {"최근 7일 사용량", "지연 · 19:30 기준", "서버 오류 credentials_", "초기화 11-18 09:00",
-                           "실패 · 47시간 전", "19:30 기준", "시각 동기화 대기", "인증서 검증 안 함", "토큰 평문 전송"};
-  for (const char *t : koreanS) textWidth(FONT_S, t, &missing);
+  const char *weekdays[] = {"일", "월", "화", "수", "목", "금", "토"};
+  int widest = 0;
+  for (int m = 1; m <= 12; m++) {
+    for (const char *wd : weekdays) {
+      char date[40];
+      std::snprintf(date, sizeof(date), "%d월 %d일 %s요일", m, 28, wd);
+      int w = textWidth(FONT_S, date, &missing);
+      if (w > widest) widest = w;
+    }
+  }
+  std::printf("    widest date %dpx (box 150)\n", widest);
+  CHECK(widest <= 150);
+  const char *statuses[] = {"초기화 12-31 23:59", "초기화 12-31 23:59 · 23:59 기준", "지연 · 19:30 기준", "서버 오류 credentials_",
+                            "실패 · 47시간 전", "불러오는 중", "시각 동기화 대기", "인증서 검증 안 함", "토큰 평문 전송",
+                            "Wi-Fi 연결 끊김", "URL 미설정", "시간 동기화 중", "Wi-Fi 연결 중"};
+  for (const char *t : statuses) textWidth(FONT_XS, t, &missing);
+  for (const char *t : {"Wi-Fi 연결 중", "시간 동기화 중", "Claude", "Fable"}) textWidth(FONT_S, t, &missing);
+  for (const char *t : {"0%", "100%", "--"}) {
+    textWidth(FONT_P, t, &missing);
+    textWidth(FONT_PS, t, &missing);
+  }
+  textWidth(FONT_L, "00:00--:--", &missing);
   CHECK(missing == 0);
+  // A's reset line sits in a 108px box inside the inner ring; B's combined line in 224px.
+  CHECK(textWidth(FONT_XS, "초기화 12-31 23:59") <= 108);
+  CHECK(textWidth(FONT_XS, "초기화 12-31 23:59 · 23:59 기준") <= 224);
+  CHECK(textWidth(FONT_P, "100%") <= 60);
+}
 
-  const int titleW = textWidth(FONT_S, koreanS[0]);
-  const char *statuses[] = {"19:30 기준", "지연 · 19:30 기준", "서버 오류 credentials_", "서버 오류 usage_http_5",
-                            "실패 · 47시간 전", "불러오는 중", "시각 동기화 대기"};
-  for (const char *st : statuses) {
-    int sw = textWidth(FONT_S, st);
-    bool showTitle = titleW + 8 + sw <= innerW;
-    std::printf("    header \"%s\" %dpx, title %dpx %s\n", st, sw, titleW, showTitle ? "shown" : "hidden");
-    CHECK(sw <= innerW);
-    if (!std::strcmp(st, "19:30 기준")) CHECK(showTitle);
+static void caseDisplaySettings() {
+  std::puts("settings JSON: layout keys, defaults, migration from 0.1.x");
+  // Exactly the keys 0.1.2 writes (settings::toJson in that release).
+  Settings s = loadSettings(R"({"admin_pass":"admin-pass","ap_pass":"ap-pass1","usage_url":"https://x/clock/usage",
+      "usage_token":"t","tls_fp":"","tls_mode":"ca","tz":"KST-9","brightness":55,"refresh_min":7})");
+  CHECK(s.layout == Layout::C);
+  CHECK(s.layoutMode == LayoutMode::Fixed);
+  CHECK(s.cycleSec == 15);
+  CHECK(s.brightness == 55 && s.refreshMin == 7);
+  CHECK_STR(s.usageUrl.c_str(), "https://x/clock/usage");
+
+  s = loadSettings(R"({"layout":"Z","layout_mode":"spin","cycle_sec":4})");
+  CHECK(s.layout == Layout::C && s.layoutMode == LayoutMode::Fixed && s.cycleSec == 15);
+  s = loadSettings(R"({"layout":"a","cycle_sec":301})");
+  CHECK(s.layout == Layout::C && s.cycleSec == 15);
+  s = loadSettings(R"({"layout":"B","cycle_sec":"20"})");
+  CHECK(s.layout == Layout::B && s.cycleSec == 15);
+  s = loadSettings(R"({"layout":"A","layout_mode":"cycle","cycle_sec":5})");
+  CHECK(s.layout == Layout::A && s.layoutMode == LayoutMode::Cycle && s.cycleSec == 5);
+  s = loadSettings(R"({"cycle_sec":300})");
+  CHECK(s.cycleSec == 300);
+
+  CHECK(!settings::validCycleSec(4) && settings::validCycleSec(5) && settings::validCycleSec(300) &&
+        !settings::validCycleSec(301));
+  Layout l;
+  CHECK(!settings::parseLayout(nullptr, l) && !settings::parseLayout("", l) && !settings::parseLayout("D", l));
+  for (Layout layout : {Layout::A, Layout::B, Layout::C}) {
+    for (LayoutMode mode : {LayoutMode::Fixed, LayoutMode::Cycle}) {
+      Settings in;
+      in.layout = layout;
+      in.layoutMode = mode;
+      in.cycleSec = 42;
+      JsonDocument doc;
+      settings::toJson(in, doc.to<JsonVariant>());
+      std::string raw;
+      serializeJson(doc, raw);
+      Settings out = loadSettings(raw.c_str());
+      CHECK(out.layout == layout && out.layoutMode == mode && out.cycleSec == 42);
+    }
   }
-
-  for (const char *notice : {"인증서 검증 안 함", "토큰 평문 전송"}) {
-    int nw = textWidth(FONT_S, notice);
-    std::printf("    notice \"%s\" %dpx\n", notice, nw);
-    CHECK(nw <= innerW);
-  }
-
-  const int resetsW = textWidth(FONT_S, "초기화 12-31 23:59");
-  const int barW = innerW - resetsW - 8;
-  std::printf("    resets %dpx, bar %dpx\n", resetsW, barW);
-  CHECK(barW >= 80);
-
-  const int labelW = innerW * 2 / 5;
-  CHECK(textWidth(FONT_M, "Claude") <= labelW);
-  CHECK(textWidth(FONT_M, "100%") <= innerW - labelW);
-  const int slotH = itemsH / 2;
-  const int rowBottom = itemsY + slotH + (FONT_M.ascent + FONT_M.descent) + 2 + (FONT_S.ascent + FONT_S.descent);
-  std::printf("    slot %dpx, second item ends at y=%d\n", slotH, rowBottom);
-  CHECK((FONT_M.ascent + FONT_M.descent) + 2 + (FONT_S.ascent + FONT_S.descent) <= slotH);
-  CHECK(rowBottom <= 240);
 }
 
 int main() {
@@ -346,6 +378,7 @@ int main() {
   caseSettingsSerialization();
   caseTlsPolicy();
   caseLayout();
+  caseDisplaySettings();
   std::printf("%d checks, %d failures\n", checks, failures);
   return failures ? 1 : 0;
 }

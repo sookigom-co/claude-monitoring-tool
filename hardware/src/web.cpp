@@ -28,6 +28,12 @@ const TlsModeOption TLS_MODE_OPTIONS[] = {
     {TlsMode::Insecure, "No check (insecure)"},
 };
 
+const char *const LAYOUT_LABELS[LAYOUT_COUNT] = {
+    "A - concentric rings (Claude outside, Fable inside)",
+    "B - clock on top, two gauges below",
+    "C - left/right half rings (default)",
+};
+
 ESP8266WebServer server(80);
 AppHooks *app = nullptr;
 String csrf;
@@ -137,7 +143,7 @@ void handleRoot() {
   else usageStatus = F("pending");
 
   String b;
-  b.reserve(4400);
+  b.reserve(5400);
   b += F("<h2>SmartClock</h2><table>");
   b += row(F("Firmware"), F(FW_VERSION));
   b += row(F("Wi-Fi"), esc(WiFi.SSID()) + F(" (") + WiFi.RSSI() + F(" dBm)"));
@@ -171,6 +177,22 @@ void handleRoot() {
   b += esc(s.tz);
   b += F("'><label>Brightness (0-100)</label><input name=brightness type=number min=0 max=100 value=");
   b += s.brightness;
+  b += F("><label>Screen design</label><select name=layout>");
+  for (uint8_t i = 0; i < LAYOUT_COUNT; i++) {
+    b += F("<option value=");
+    b += settings::layoutName(static_cast<Layout>(i));
+    if (static_cast<uint8_t>(s.layout) == i) b += F(" selected");
+    b += '>';
+    b += LAYOUT_LABELS[i];
+    b += F("</option>");
+  }
+  b += F("</select><label>Design change</label><select name=layout_mode><option value=fixed");
+  if (s.layoutMode == LayoutMode::Fixed) b += F(" selected");
+  b += F(">Fixed - always show the design above</option><option value=cycle");
+  if (s.layoutMode == LayoutMode::Cycle) b += F(" selected");
+  b += F(">Cycle - A, B, C in turn, starting from the design above</option></select>"
+         "<label>Cycle interval (seconds, 5-300)</label><input name=cycle_sec type=number min=5 max=300 value=");
+  b += s.cycleSec;
   b += F("></fieldset><fieldset><legend>Admin password (also OTA password)</legend>"
          "<label>New password (8+ chars, empty = keep)</label><input name=admin_pass type=password autocomplete=new-password maxlength=64>"
          "<label>Repeat</label><input name=admin_pass2 type=password autocomplete=new-password maxlength=64></fieldset>"
@@ -226,6 +248,12 @@ void handleSave() {
   if (refresh < 1 || refresh > 1440) err += F("Refresh must be 1-1440. ");
   next.brightness = static_cast<uint8_t>(constrain(bright, 0L, 100L));
   next.refreshMin = static_cast<uint16_t>(constrain(refresh, 1L, 1440L));
+
+  if (!settings::parseLayout(server.arg(F("layout")).c_str(), next.layout)) err += F("Unknown screen design. ");
+  if (!settings::parseLayoutMode(server.arg(F("layout_mode")).c_str(), next.layoutMode)) err += F("Unknown design change mode. ");
+  long cycle = server.arg(F("cycle_sec")).toInt();
+  if (!settings::validCycleSec(cycle)) err += F("Cycle interval must be 5-300 seconds. ");
+  else next.cycleSec = static_cast<uint16_t>(cycle);
 
   String pass = server.arg(F("admin_pass"));
   bool passChanged = false;
@@ -354,7 +382,13 @@ void handleStatusJson() {
   j += u.lastOk ? F("true") : F("false");
   j += F(",\"relay_status\":\"");
   j += RELAY_STATUS_NAMES[static_cast<uint8_t>(u.relayStatus)];
-  j += F("\",\"usage_age_s\":");
+  j += F("\",\"layout\":\"");
+  j += settings::layoutName(app->settings->layout);
+  j += F("\",\"layout_mode\":\"");
+  j += settings::layoutModeName(app->settings->layoutMode);
+  j += F("\",\"cycle_sec\":");
+  j += app->settings->cycleSec;
+  j += F(",\"usage_age_s\":");
   j += u.haveData ? String((millis() - u.lastSuccessMs) / 1000) : String(F("null"));
   j += F(",\"waiting_for_time\":");
   j += u.waitingForTime ? F("true") : F("false");

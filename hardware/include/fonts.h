@@ -19,6 +19,11 @@ struct Font {
   uint8_t descent;
 };
 
+// Clock digits: "0-9", ":" and "-" only.
 extern const Font FONT_L;
 extern const Font FONT_M;
 extern const Font FONT_S;
+extern const Font FONT_XS;
+// Gauge percentages: digits, "%" and "-" only, so its line box is no taller than the digits.
+extern const Font FONT_P;
+extern const Font FONT_PS;

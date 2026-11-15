@@ -5,6 +5,7 @@
 #include <time.h>
 
 #include "board.h"
+#include "layout_cycle.h"
 #include "settings.h"
 #include "ui.h"
 #include "usage.h"
@@ -22,6 +23,7 @@ UsageState usageState;
 AppHooks hooks;
 bool fetchRequested = true;
 uint32_t lastUiMs = 0;
+LayoutCycle layoutCycle;
 
 String chipSuffix() {
   char buf[8];
@@ -32,6 +34,8 @@ String chipSuffix() {
 void applySettings() {
   lcd.setBrightness(cfg.brightness);
   configTime(cfg.tz.c_str(), "pool.ntp.org", "time.google.com");
+  // Saving restarts the cycle at the chosen design so the change shows at once.
+  layoutCycle.restart(millis());
 }
 
 void requestFetch() { fetchRequested = true; }
@@ -125,8 +129,9 @@ void loop() {
   serviceUsage();
   if (millis() - lastUiMs >= 100) {
     lastUiMs = millis();
-    ui::drawClock(time(nullptr) > usage::VALID_EPOCH, WiFi.status() == WL_CONNECTED, securityNotice());
-    ui::drawUsage(usageState, !cfg.usageUrl.isEmpty());
+    ui::setLayout(layoutCycle.active(cfg, millis()));
+    ui::draw(time(nullptr) > usage::VALID_EPOCH, WiFi.status() == WL_CONNECTED, securityNotice(), usageState,
+             !cfg.usageUrl.isEmpty());
   }
   delay(5);
 }

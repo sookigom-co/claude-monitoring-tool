@@ -6,19 +6,50 @@ namespace {
 
 constexpr uint32_t SPI_HZ = 40000000;
 constexpr uint8_t MAX_GLYPHS = 40;
+constexpr uint8_t MAX_SPANS = 4;
 
 uint8_t madctlFor(uint8_t rotation, bool bgr) {
   static const uint8_t table[4] = {0x00, 0x60, 0xC0, 0xA0};
   return table[rotation & 3] | (bgr ? 0x08 : 0x00);
 }
 
-uint16_t blend(uint16_t bg, uint16_t fg, uint8_t alpha16) {
-  uint32_t a = alpha16 * 17;
+uint16_t blend255(uint16_t bg, uint16_t fg, uint32_t a) {
   uint32_t r = (((fg >> 11) & 0x1F) * a + ((bg >> 11) & 0x1F) * (255 - a)) / 255;
   uint32_t g = (((fg >> 5) & 0x3F) * a + ((bg >> 5) & 0x3F) * (255 - a)) / 255;
   uint32_t b = ((fg & 0x1F) * a + (bg & 0x1F) * (255 - a)) / 255;
   return (r << 11) | (g << 5) | b;
 }
+
+uint16_t blend(uint16_t bg, uint16_t fg, uint8_t alpha16) { return blend255(bg, fg, alpha16 * 17); }
+
+int16_t clampCoord(float v, int16_t size) { return v < 0 ? 0 : (v > size - 1 ? size - 1 : static_cast<int16_t>(v)); }
+
+float clamp01(float v) { return v < 0 ? 0 : (v > 1 ? 1 : v); }
+
+// Clock angle of (dx, dy) with y pointing down, in [0, 360). Polynomial atan, error below 0.001 degrees.
+float clockDegrees(float dx, float dy) {
+  const float x = -dy, y = dx;
+  const float ax = fabsf(x), ay = fabsf(y);
+  const float mx = ax > ay ? ax : ay;
+  if (mx == 0) return 0;
+  const float a = (ax < ay ? ax : ay) / mx;
+  const float s = a * a;
+  float r = ((-0.0464964749f * s + 0.15931422f) * s - 0.327622764f) * s * a + a;
+  if (ay > ax) r = 1.57079637f - r;
+  if (x < 0) r = 3.14159274f - r;
+  if (y < 0) r = -r;
+  float deg = r * 57.2957795f;
+  return deg < 0 ? deg + 360 : deg;
+}
+
+struct SpanShape {
+  float start;
+  float sweep;
+  bool closed;
+  float capX[2];
+  float capY[2];
+  uint16_t color;
+};
 
 }  // namespace
 
@@ -159,6 +190,16 @@ void Lcd::setWindow(int16_t x, int16_t y, int16_t w, int16_t h) {
   commandData(0x2B, ras, 4);
 }
 
+void Lcd::writeRun(int16_t x, int16_t y, int16_t w, const uint8_t *pixels) {
+  setWindow(x, y, w, 1);
+  startWrite();
+  digitalWrite(p_.dc, LOW);
+  writeByte(0x2C);
+  digitalWrite(p_.dc, HIGH);
+  writeBytes(pixels, w * 2);
+  endWrite();
+}
+
 void Lcd::fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color) {
   if (x < 0) { w += x; x = 0; }
   if (y < 0) { h += y; y = 0; }
@@ -264,4 +305,87 @@ void Lcd::drawText(const Font &font, int16_t x, int16_t y, int16_t boxW, Align a
     writeBytes(line, boxW * 2);
   }
   endWrite();
+}
+
+void Lcd::drawRing(float cx, float cy, float rMid, float halfW, const ArcSpan *spans, uint8_t n, uint16_t bg) {
+  SpanShape shapes[MAX_SPANS];
+  uint8_t count = 0;
+  for (uint8_t i = 0; i < n && count < MAX_SPANS; i++) {
+    if (spans[i].sweep <= 0) continue;
+    SpanShape &sh = shapes[count++];
+    sh.start = spans[i].start;
+    sh.sweep = spans[i].sweep;
+    sh.closed = sh.sweep >= 360;
+    sh.color = spans[i].color;
+    for (uint8_t e = 0; e < 2; e++) {
+      const float rad = (sh.start + (e ? sh.sweep : 0)) * 0.0174532925f;
+      sh.capX[e] = cx + rMid * sinf(rad);
+      sh.capY[e] = cy - rMid * cosf(rad);
+    }
+  }
+  if (!count) return;
+
+  // Every covered pixel lies within halfW + 0.5 of the centre line, caps included.
+  const float band = halfW + 1;
+  const float outer = rMid + band, inner = rMid - band;
+  const int16_t y0 = clampCoord(floorf(cy - outer), H);
+  const int16_t y1 = clampCoord(ceilf(cy + outer), H);
+  uint8_t line[W * 2];
+  for (int16_t y = y0; y <= y1; y++) {
+    const float dy = y + 0.5f - cy;
+    if (dy * dy >= outer * outer) continue;
+    const float xo = sqrtf(outer * outer - dy * dy);
+    const int16_t xa = clampCoord(floorf(cx - xo), W);
+    const int16_t xb = clampCoord(ceilf(cx + xo), W);
+    // Pixels strictly inside the inner edge are skipped without per-pixel maths.
+    int16_t holeA = xb + 1, holeB = xb;
+    if (inner > 0 && dy * dy < inner * inner) {
+      const float xi = sqrtf(inner * inner - dy * dy);
+      holeA = ceilf(cx - xi);
+      holeB = floorf(cx + xi) - 1;
+    }
+    int16_t runX = -1;
+    for (int16_t x = xa; x <= xb + 1; x++) {
+      bool covered = false;
+      uint16_t color = bg;
+      if (x >= holeA && x <= holeB) {
+        // Flush below, then jump over the hole.
+      } else if (x <= xb) {
+        const float dx = x + 0.5f - cx;
+        const float d = sqrtf(dx * dx + dy * dy);
+        const float radial = clamp01(halfW + 0.5f - fabsf(d - rMid));
+        if (radial > 0) {
+          const float deg = clockDegrees(dx, dy);
+          for (uint8_t i = 0; i < count; i++) {
+            const SpanShape &sh = shapes[i];
+            float cov = 0;
+            float rel = deg - sh.start;
+            while (rel < 0) rel += 360;
+            while (rel >= 360) rel -= 360;
+            if (sh.closed || rel <= sh.sweep) cov = radial;
+            if (!sh.closed) {
+              for (uint8_t e = 0; e < 2; e++) {
+                const float ex = x + 0.5f - sh.capX[e], ey = y + 0.5f - sh.capY[e];
+                const float capCov = clamp01(halfW + 0.5f - sqrtf(ex * ex + ey * ey));
+                if (capCov > cov) cov = capCov;
+              }
+            }
+            if (cov > 0) {
+              covered = true;
+              color = blend255(color, sh.color, static_cast<uint32_t>(cov * 255 + 0.5f));
+            }
+          }
+        }
+      }
+      if (covered) {
+        if (runX < 0) runX = x;
+        line[2 * (x - runX)] = color >> 8;
+        line[2 * (x - runX) + 1] = color & 0xFF;
+      } else if (runX >= 0) {
+        writeRun(runX, y, x - runX, line);
+        runX = -1;
+      }
+      if (x >= holeA && x < holeB) x = holeB;
+    }
+  }
 }
