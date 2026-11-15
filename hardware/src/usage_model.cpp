@@ -1,5 +1,6 @@
 #include <ArduinoJson.h>
 
+#include "i18n.h"
 #include "usage.h"
 
 namespace usage {
@@ -38,11 +39,11 @@ void copyPrintable(const char *src, char *dst, size_t n) {
   dst[j] = '\0';
 }
 
-void formatAge(uint32_t ms, char *out, size_t n) {
-  uint32_t min = ms / 60000;
-  if (min < 60) snprintf(out, n, "%lu분 전", static_cast<unsigned long>(min));
-  else if (min < 48 * 60) snprintf(out, n, "%lu시간 전", static_cast<unsigned long>(min / 60));
-  else snprintf(out, n, "%lu일 전", static_cast<unsigned long>(min / 1440));
+void formatAge(uint32_t ms, Lang lang, char *out, size_t n) {
+  const unsigned long min = ms / 60000;
+  if (min < 60) snprintf_P(out, n, i18n::text(lang, Msg::MinutesAgo), min);
+  else if (min < 48 * 60) snprintf_P(out, n, i18n::text(lang, Msg::HoursAgo), min / 60);
+  else snprintf_P(out, n, i18n::text(lang, Msg::DaysAgo), min / 1440);
 }
 
 }  // namespace
@@ -74,37 +75,37 @@ bool parse(const char *json, size_t len, UsageState &out) {
   return true;
 }
 
-bool headerText(const UsageState &state, bool configured, uint32_t nowMs, char *out, size_t n) {
+bool headerText(const UsageState &state, bool configured, uint32_t nowMs, Lang lang, char *out, size_t n) {
   if (!configured) {
-    strlcpy(out, "URL 미설정", n);
+    i18n::copy(lang, Msg::NoUrl, out, n);
     return false;
   }
   if (state.waitingForTime) {
-    strlcpy(out, "시각 동기화 대기", n);
+    i18n::copy(lang, Msg::WaitingForTime, out, n);
     return false;
   }
   if (!state.haveData) {
-    strlcpy(out, state.lastAttemptMs ? "실패" : "불러오는 중", n);
+    i18n::copy(lang, state.lastAttemptMs ? Msg::Failed : Msg::Loading, out, n);
     return state.lastAttemptMs != 0;
   }
   char age[20];
-  formatAge(nowMs - state.lastSuccessMs, age, sizeof(age));
-  const bool haveUpdated = strlen(state.updated) >= 16;
+  formatAge(nowMs - state.lastSuccessMs, lang, age, sizeof(age));
+  const char *hhmm = strlen(state.updated) >= 16 ? state.updated + 11 : nullptr;
   if (!state.lastOk) {
-    snprintf(out, n, "실패 · %s", age);
+    snprintf_P(out, n, i18n::text(lang, Msg::FailedAge), age);
     return true;
   }
   if (state.relayStatus == RelayStatus::Stale) {
-    if (haveUpdated) snprintf(out, n, "지연 · %.5s 기준", state.updated + 11);
-    else strlcpy(out, "지연", n);
+    if (hhmm) snprintf_P(out, n, i18n::text(lang, Msg::StaleAsOf), hhmm);
+    else i18n::copy(lang, Msg::Stale, out, n);
     return true;
   }
   if (state.relayStatus == RelayStatus::Error) {
-    if (state.relayError[0]) snprintf(out, n, "서버 오류 %s", state.relayError);
-    else strlcpy(out, "서버 오류", n);
+    if (state.relayError[0]) snprintf_P(out, n, i18n::text(lang, Msg::ServerErrorCode), state.relayError);
+    else i18n::copy(lang, Msg::ServerError, out, n);
     return true;
   }
-  if (haveUpdated) snprintf(out, n, "%.5s 기준", state.updated + 11);
+  if (hhmm) snprintf_P(out, n, i18n::text(lang, Msg::AsOf), hhmm);
   else strlcpy(out, age, n);
   return false;
 }

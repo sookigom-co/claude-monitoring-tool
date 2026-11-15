@@ -1,4 +1,4 @@
-// Usage: render_screens <out-dir>; renders every layout/state via a simulated ST7789, non-zero on failure.
+// Usage: render_screens <out-dir>; renders every language/layout/state via a simulated ST7789, non-zero on failure.
 #include <SPI.h>
 
 #include <cstdlib>
@@ -113,6 +113,7 @@ namespace {
 
 Lcd lcd;
 const char *const LAYOUT_NAMES[] = {"A", "B", "C"};
+const Lang LANGS[] = {Lang::En, Lang::Ko};
 
 void clearMasks() {
   std::memset(ringMask, 0, sizeof(ringMask));
@@ -179,44 +180,67 @@ struct Scenario {
   const char *name;
   bool timeValid;
   bool wifiUp;
-  const char *notice;
+  TokenWarning warning;
   UsageState state;
 };
 
 std::vector<Scenario> scenarios() {
   std::vector<Scenario> out;
-  out.push_back({"normal", true, true, "", fromRelay(relayJson(42, 55, "ok", nullptr))});
-  out.push_back({"pct70", true, true, "", fromRelay(relayJson(74, 78, "ok", nullptr))});
-  out.push_back({"pct90", true, true, "", fromRelay(relayJson(93, 97, "ok", nullptr))});
+  const TokenWarning none = TokenWarning::None;
+  out.push_back({"normal", true, true, none, fromRelay(relayJson(42, 55, "ok", nullptr))});
+  out.push_back({"pct70", true, true, none, fromRelay(relayJson(74, 78, "ok", nullptr))});
+  out.push_back({"pct90", true, true, none, fromRelay(relayJson(93, 97, "ok", nullptr))});
   UsageState failed;
   failed.lastAttemptMs = nowMs - 60000;
-  out.push_back({"nodata", true, true, "", failed});
-  out.push_back({"relay-error", true, true, "", fromRelay(relayJson(42, 76, "error", "usage_http_5"))});
+  out.push_back({"nodata", true, true, none, failed});
+  out.push_back({"relay-error", true, true, none, fromRelay(relayJson(42, 76, "error", "usage_http_5"))});
+  UsageState stale = fromRelay(relayJson(42, 55, "stale", "refresh_failed"));
+  out.push_back({"relay-stale", true, true, none, stale});
+  out.push_back({"warn-token", true, true, TokenWarning::Plaintext, fromRelay(relayJson(42, 55, "ok", nullptr))});
+  out.push_back({"warn-cert", true, true, TokenWarning::NoCertCheck, fromRelay(relayJson(42, 55, "ok", nullptr))});
   UsageState loading;
-  out.push_back({"no-time", false, true, "", loading});
-  out.push_back({"wifi-lost", true, false, "", fromRelay(relayJson(100, 0, "ok", nullptr))});
+  out.push_back({"no-time", false, true, none, loading});
+  out.push_back({"wifi-lost", true, false, none, fromRelay(relayJson(100, 0, "ok", nullptr))});
   return out;
 }
 
 void renderAll(const std::string &dir) {
-  std::puts("render: 3 layouts x 7 states");
-  for (uint8_t l = 0; l < LAYOUT_COUNT; l++) {
-    for (const Scenario &sc : scenarios()) {
-      ui::setLayout(static_cast<Layout>(l));
-      ui::invalidate();
-      clearMasks();
-      ui::draw(sc.timeValid, sc.wifiUp, sc.notice, sc.state, true);
-      const int overlap = overlapCount();
-      std::printf("  %s-%-12s overlap %d px\n", LAYOUT_NAMES[l], sc.name, overlap);
-      check(overlap == 0, "text and ring pixels overlap");
-      check(writePpm(dir + "/" + LAYOUT_NAMES[l] + "-" + sc.name + ".ppm"), "write ppm");
+  std::puts("render: 2 languages x 3 layouts x 10 states");
+  for (Lang lang : LANGS) {
+    ui::setLang(lang);
+    for (uint8_t l = 0; l < LAYOUT_COUNT; l++) {
+      for (const Scenario &sc : scenarios()) {
+        ui::setLayout(static_cast<Layout>(l));
+        ui::invalidate();
+        clearMasks();
+        ui::draw(sc.timeValid, sc.wifiUp, sc.warning, sc.state, true);
+        const int overlap = overlapCount();
+        const std::string name = std::string(settings::langName(lang)) + "-" + LAYOUT_NAMES[l] + "-" + sc.name;
+        std::printf("  %-20s overlap %d px\n", name.c_str(), overlap);
+        check(overlap == 0, "text and ring pixels overlap");
+        check(writePpm(dir + "/" + name + ".ppm"), "write ppm");
+      }
     }
+  }
+}
+
+void renderSetup(const std::string &dir) {
+  std::puts("render: setup mode and message screens in both languages");
+  for (Lang lang : LANGS) {
+    const std::string prefix = dir + "/" + settings::langName(lang);
+    ui::setLang(lang);
+    ui::showSetup("SmartClock-3F2A", "kq7mxw4p", "h3dTnc9wre");
+    check(writePpm(prefix + "-setup.ppm"), "write ppm");
+    ui::showMessage(Msg::Updating, "firmware.bin");
+    check(writePpm(prefix + "-updating.ppm"), "write ppm");
+    ui::showMessage(Msg::ConnectingWifi, "home-2.4G");
+    check(writePpm(prefix + "-connecting.ppm"), "write ppm");
   }
 }
 
 unsigned long frame(const UsageState &st) {
   pixelsWritten = 0;
-  ui::draw(true, true, "", st, true);
+  ui::draw(true, true, TokenWarning::None, st, true);
   return pixelsWritten;
 }
 
@@ -270,6 +294,22 @@ void layoutSwitch() {
   check(frame(st) == 0, "the frame after a switch sends nothing");
 }
 
+void langSwitch() {
+  std::puts("language switch: setLang repaints once, same language is a no-op");
+  UsageState st = fromRelay(relayJson(42, 55, "ok", nullptr));
+  ui::setLang(Lang::Ko);
+  ui::setLayout(Layout::C);
+  ui::invalidate();
+  frame(st);
+  ui::setLang(Lang::Ko);
+  check(frame(st) == 0, "setting the same language repaints nothing");
+  ui::setLang(Lang::En);
+  const unsigned long sw = frame(st);
+  std::printf("  ko->en switch sends %lu px\n", sw);
+  check(sw >= 57600, "a language switch repaints the screen");
+  check(frame(st) == 0, "the frame after a switch sends nothing");
+}
+
 void cycle() {
   std::puts("layout cycle: fixed, cycle order, interval, restart, millis wrap");
   Settings s;
@@ -308,8 +348,11 @@ int main(int argc, char **argv) {
   lcd.begin(pins);
   ui::begin(lcd);
   renderAll(argv[1]);
+  renderSetup(argv[1]);
+  ui::setLang(Lang::Ko);
   partialRedraw();
   layoutSwitch();
+  langSwitch();
   cycle();
   std::printf("%d failures\n", failures);
   return failures ? 1 : 0;

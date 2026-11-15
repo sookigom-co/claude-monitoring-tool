@@ -1,8 +1,9 @@
-// Host tests for usage::parse, usage::headerText, the settings TLS mode model and the screen layout widths.
+// Host tests for usage::parse, usage::headerText, the settings model, the screen text tables and the layout widths.
 #include <cstdio>
 #include <cstring>
 
 #include "fonts.h"
+#include "i18n.h"
 #include "settings.h"
 #include "usage.h"
 
@@ -39,7 +40,7 @@ static bool parseStr(const char *json, UsageState &st) {
 }
 
 static bool header(const UsageState &st, char *out, size_t n) {
-  return usage::headerText(st, true, 5 * 60000, out, n);
+  return usage::headerText(st, true, 5 * 60000, Lang::Ko, out, n);
 }
 
 static void caseDraft() {
@@ -260,9 +261,9 @@ static void caseTlsPolicy() {
   UsageState st;
   st.waitingForTime = true;
   char h[40];
-  CHECK(!usage::headerText(st, true, 0, h, sizeof(h)));
+  CHECK(!usage::headerText(st, true, 0, Lang::Ko, h, sizeof(h)));
   CHECK_STR(h, "시각 동기화 대기");
-  CHECK(!usage::headerText(st, false, 0, h, sizeof(h)));
+  CHECK(!usage::headerText(st, false, 0, Lang::Ko, h, sizeof(h)));
   CHECK_STR(h, "URL 미설정");
 }
 
@@ -367,6 +368,155 @@ static void caseDisplaySettings() {
   }
 }
 
+static void caseLangSettings() {
+  std::puts("settings JSON: lang key, default ko, migration from 0.2.0");
+  // Exactly the keys 0.2.0 writes (settings::toJson in that release).
+  Settings s = loadSettings(R"({"admin_pass":"admin-pass","ap_pass":"ap-pass1","usage_url":"https://x/clock/usage",
+      "usage_token":"t","tls_fp":"","tls_mode":"ca","tz":"KST-9","brightness":55,"refresh_min":7,
+      "layout":"B","layout_mode":"cycle","cycle_sec":20})");
+  CHECK(s.lang == Lang::Ko);
+  CHECK(s.layout == Layout::B && s.layoutMode == LayoutMode::Cycle && s.cycleSec == 20);
+  CHECK(loadSettings("{}").lang == Lang::Ko);
+  CHECK(loadSettings(R"({"lang":"en"})").lang == Lang::En);
+  CHECK(loadSettings(R"({"lang":"ko"})").lang == Lang::Ko);
+  for (const char *bad : {R"({"lang":"EN"})", R"({"lang":"fr"})", R"({"lang":""})", R"({"lang":1})", R"({"lang":null})"}) {
+    CHECK(loadSettings(bad).lang == Lang::Ko);
+  }
+  Lang l = Lang::En;
+  CHECK(!settings::parseLang(nullptr, l) && !settings::parseLang("english", l) && l == Lang::En);
+  CHECK_STR(settings::langName(Lang::En), "en");
+  CHECK_STR(settings::langName(Lang::Ko), "ko");
+  for (Lang lang : {Lang::En, Lang::Ko}) {
+    Settings in;
+    in.lang = lang;
+    in.layout = Layout::A;
+    in.tz = "UTC0";
+    JsonDocument doc;
+    settings::toJson(in, doc.to<JsonVariant>());
+    std::string raw;
+    serializeJson(doc, raw);
+    CHECK_STR(doc["lang"].as<const char *>(), settings::langName(lang));
+    Settings out = loadSettings(raw.c_str());
+    CHECK(out.lang == lang && out.layout == Layout::A);
+    CHECK_STR(out.tz.c_str(), "UTC0");
+  }
+}
+
+static void caseScreenTextTable() {
+  std::puts("screen text table: every entry present in both languages");
+  for (uint8_t i = 0; i < static_cast<uint8_t>(Msg::Count); i++) {
+    CHECK(std::strlen(i18n::text(Lang::En, static_cast<Msg>(i))) > 0);
+    CHECK(std::strlen(i18n::text(Lang::Ko, static_cast<Msg>(i))) > 0);
+  }
+  CHECK_STR(i18n::text(Lang::En, Msg::SetupMode), "Setup mode");
+  CHECK_STR(i18n::text(Lang::Ko, Msg::SetupMode), "설정 모드");
+  char buf[8];
+  i18n::copy(Lang::En, Msg::WifiLost, buf, sizeof(buf));
+  CHECK_STR(buf, "Wi-Fi o");
+}
+
+static void caseEnglishHeader() {
+  std::puts("English header and age text");
+  auto en = [](const UsageState &st, uint32_t nowMs, char *out, size_t n) {
+    return usage::headerText(st, true, nowMs, Lang::En, out, n);
+  };
+  char h[40];
+  UsageState st;
+  CHECK(!usage::headerText(st, false, 0, Lang::En, h, sizeof(h)));
+  CHECK_STR(h, "No URL set");
+  CHECK(!en(st, 0, h, sizeof(h)));
+  CHECK_STR(h, "Loading");
+  st.lastAttemptMs = 1;
+  CHECK(en(st, 0, h, sizeof(h)));
+  CHECK_STR(h, "Failed");
+  st.waitingForTime = true;
+  CHECK(!en(st, 0, h, sizeof(h)));
+  CHECK_STR(h, "Waiting for time");
+
+  CHECK(parseStr(R"({"updated":"2026-11-13T19:30:16+09:00","items":[{"label":"Claude","value":"1","pct":1}],"status":"ok"})", st));
+  st.waitingForTime = false;
+  CHECK(!en(st, 0, h, sizeof(h)));
+  CHECK_STR(h, "as of 19:30");
+  st.relayStatus = RelayStatus::Stale;
+  CHECK(en(st, 0, h, sizeof(h)));
+  CHECK_STR(h, "Stale \xC2\xB7 as of 19:30");
+  st.updated[0] = '\0';
+  CHECK(en(st, 0, h, sizeof(h)));
+  CHECK_STR(h, "Stale");
+  st.relayStatus = RelayStatus::Error;
+  std::strcpy(st.relayError, "usage_http_5");
+  CHECK(en(st, 0, h, sizeof(h)));
+  CHECK_STR(h, "Server error usage_http_5");
+  st.relayError[0] = '\0';
+  CHECK(en(st, 0, h, sizeof(h)));
+  CHECK_STR(h, "Server error");
+
+  st.relayStatus = RelayStatus::Ok;
+  const struct {
+    uint32_t ms;
+    const char *en, *ko;
+  } ages[] = {{0, "0m ago", "0분 전"},           {59 * 60000, "59m ago", "59분 전"},
+              {60 * 60000, "1h ago", "1시간 전"}, {47 * 3600000u + 59 * 60000, "47h ago", "47시간 전"},
+              {48 * 3600000u, "2d ago", "2일 전"}, {10 * 86400000u, "10d ago", "10일 전"}};
+  for (const auto &a : ages) {
+    CHECK(!en(st, a.ms, h, sizeof(h)));
+    CHECK_STR(h, a.en);
+    CHECK(!usage::headerText(st, true, a.ms, Lang::Ko, h, sizeof(h)));
+    CHECK_STR(h, a.ko);
+  }
+  st.lastOk = false;
+  CHECK(en(st, 3 * 3600000u, h, sizeof(h)));
+  CHECK_STR(h, "Failed \xC2\xB7 3h ago");
+}
+
+static void caseEnglishLayout() {
+  std::puts("0.3.0 English screens: glyph coverage and widths");
+  int missing = 0;
+  const char *wdays[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+  const char *months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+  int widest = 0;
+  for (const char *m : months) {
+    for (const char *wd : wdays) {
+      char date[40];
+      std::snprintf(date, sizeof(date), "%s, %s %d", wd, m, 28);
+      int w = textWidth(FONT_S, date, &missing);
+      if (w > widest) widest = w;
+    }
+  }
+  std::printf("    widest date %dpx (box 150)\n", widest);
+  CHECK(widest <= 150);
+  for (Msg m : {Msg::SyncingTime, Msg::ConnectingWifi}) {
+    const int w = textWidth(FONT_S, i18n::text(Lang::En, m), &missing);
+    std::printf("    date box %-20s %3dpx (box 150)\n", i18n::text(Lang::En, m), w);
+    CHECK(w <= 150);
+  }
+  // Footer boxes: A 108px, B 224px, C 140px in FONT_XS. Longest realistic value of every footer text.
+  const char *footers[] = {"Reset 12-31 23:59", "Reset 12-31 23:59 \xC2\xB7 as of 23:59", "Stale \xC2\xB7 as of 19:30",
+                           "Server error credentials_", "Failed \xC2\xB7 47h ago", "Loading", "Failed", "Waiting for time",
+                           "No cert check", "Plaintext token", "Wi-Fi offline", "No URL set", "as of 23:59",
+                           "59m ago"};
+  for (const char *t : footers) {
+    const int w = textWidth(FONT_XS, t, &missing);
+    std::printf("    footer %-36s %3dpx  A%s B%s C%s\n", t, w, w <= 108 ? "ok" : "--", w <= 224 ? "ok" : "--",
+                w <= 140 ? "ok" : "--");
+  }
+  CHECK(textWidth(FONT_XS, "Reset 12-31 23:59") <= 108);
+  // Everything that can appear in A's footer fits whole, so fitText never cuts an English phrase there.
+  CHECK(textWidth(FONT_XS, "Reset 12-31 23:59 \xC2\xB7 as of 23:59") <= 224);
+  for (const char *t : {"Stale \xC2\xB7 as of 19:30", "Failed \xC2\xB7 47h ago", "Waiting for time", "No cert check",
+                        "Plaintext token", "Wi-Fi offline", "No URL set"}) {
+    CHECK(textWidth(FONT_XS, t) <= 108);
+  }
+  for (Msg m : {Msg::SetupMode, Msg::Updating, Msg::Done, Msg::Error, Msg::ConnectingWifi}) {
+    CHECK(textWidth(FONT_M, i18n::text(Lang::En, m), &missing) <= 224);
+  }
+  for (Msg m : {Msg::Password, Msg::OpenAddress, Msg::AdminLogin, Msg::Restarting}) {
+    CHECK(textWidth(FONT_S, i18n::text(Lang::En, m), &missing) <= 224);
+  }
+  CHECK(textWidth(FONT_S, "Admin  admin / abcdefghjk") <= 224);
+  CHECK(missing == 0);
+}
+
 int main() {
   caseDraft();
   caseRejectsAndLimits();
@@ -379,6 +529,10 @@ int main() {
   caseTlsPolicy();
   caseLayout();
   caseDisplaySettings();
+  caseLangSettings();
+  caseScreenTextTable();
+  caseEnglishHeader();
+  caseEnglishLayout();
   std::printf("%d checks, %d failures\n", checks, failures);
   return failures ? 1 : 0;
 }

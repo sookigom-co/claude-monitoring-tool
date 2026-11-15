@@ -6,6 +6,7 @@ namespace {
 const char *const TLS_MODE_NAMES[] = {"ca", "fingerprint", "insecure"};
 const char *const LAYOUT_NAMES[] = {"A", "B", "C"};
 const char *const LAYOUT_MODE_NAMES[] = {"fixed", "cycle"};
+const char *const LANG_NAMES[] = {"en", "ko"};
 
 template <typename E, size_t N>
 bool parseName(const char *name, const char *const (&names)[N], E &out) {
@@ -37,6 +38,10 @@ bool parseLayoutMode(const char *name, LayoutMode &out) { return parseName(name,
 
 bool validCycleSec(long sec) { return sec >= MIN_CYCLE_SEC && sec <= MAX_CYCLE_SEC; }
 
+const char *langName(Lang lang) { return LANG_NAMES[static_cast<uint8_t>(lang)]; }
+
+bool parseLang(const char *name, Lang &out) { return parseName(name, LANG_NAMES, out); }
+
 void fromJson(JsonVariantConst doc, Settings &s) {
   s.adminPass = doc["admin_pass"] | "";
   s.apPass = doc["ap_pass"] | "";
@@ -55,6 +60,8 @@ void fromJson(JsonVariantConst doc, Settings &s) {
   if (!parseLayoutMode(doc["layout_mode"].as<const char *>(), s.layoutMode)) s.layoutMode = LayoutMode::Fixed;
   const long cycle = doc["cycle_sec"] | static_cast<long>(DEFAULT_CYCLE_SEC);
   s.cycleSec = validCycleSec(cycle) ? static_cast<uint16_t>(cycle) : DEFAULT_CYCLE_SEC;
+  // Files from 0.2.x have no lang key and keep the Korean screen they had.
+  if (!parseLang(doc["lang"].as<const char *>(), s.lang)) s.lang = Lang::Ko;
 }
 
 void toJson(const Settings &s, JsonVariant doc) {
@@ -70,6 +77,7 @@ void toJson(const Settings &s, JsonVariant doc) {
   doc["layout"] = layoutName(s.layout);
   doc["layout_mode"] = layoutModeName(s.layoutMode);
   doc["cycle_sec"] = s.cycleSec;
+  doc["lang"] = langName(s.lang);
 }
 
 bool isHttps(const Settings &s) { return startsWith(s.usageUrl, "https://"); }

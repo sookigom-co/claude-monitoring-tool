@@ -12,6 +12,10 @@ constexpr uint8_t LAYOUT_COUNT = 3;
 
 enum class LayoutMode : uint8_t { Fixed, Cycle };
 
+// Language of the web pages and the clock screen.
+enum class Lang : uint8_t { En, Ko };
+constexpr uint8_t LANG_COUNT = 2;
+
 struct Settings {
   String adminPass;
   String apPass;
@@ -25,6 +29,7 @@ struct Settings {
   Layout layout = Layout::C;
   LayoutMode layoutMode = LayoutMode::Fixed;
   uint16_t cycleSec = 15;
+  Lang lang = Lang::Ko;
 };
 
 namespace settings {
@@ -48,6 +53,8 @@ bool parseLayout(const char *name, Layout &out);
 const char *layoutModeName(LayoutMode mode);
 bool parseLayoutMode(const char *name, LayoutMode &out);
 bool validCycleSec(long sec);
+const char *langName(Lang lang);
+bool parseLang(const char *name, Lang &out);
 void fromJson(JsonVariantConst doc, Settings &s);
 void toJson(const Settings &s, JsonVariant doc);
 bool isHttps(const Settings &s);

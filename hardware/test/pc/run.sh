@@ -5,6 +5,6 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 OUT="${TMPDIR:-/tmp}/smartclock-test-usage.$$"
 g++ -std=c++17 -Wall -Wextra -O1 \
   -I "$ROOT/test/pc" -I "$ROOT/include" -I "$ROOT/.pio/libdeps/smartclock/ArduinoJson/src" \
-  "$ROOT/test/pc/test_usage.cpp" "$ROOT/src/usage_model.cpp" "$ROOT/src/settings_model.cpp" "$ROOT/src/fonts_gen.cpp" -o "$OUT"
+  "$ROOT/test/pc/test_usage.cpp" "$ROOT/src/usage_model.cpp" "$ROOT/src/settings_model.cpp" "$ROOT/src/i18n.cpp" "$ROOT/src/fonts_gen.cpp" -o "$OUT"
 trap 'rm -f "$OUT"' EXIT
 "$OUT"

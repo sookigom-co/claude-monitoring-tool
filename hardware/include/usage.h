@@ -47,7 +47,7 @@ constexpr time_t VALID_EPOCH = 1700000000;
 
 bool parse(const char *json, size_t len, UsageState &out);
 // Formats the usage header status into out; returns true when it should be drawn as a warning.
-bool headerText(const UsageState &state, bool configured, uint32_t nowMs, char *out, size_t n);
+bool headerText(const UsageState &state, bool configured, uint32_t nowMs, Lang lang, char *out, size_t n);
 bool fetch(const Settings &s, UsageState &state);
 
 }  // namespace usage
