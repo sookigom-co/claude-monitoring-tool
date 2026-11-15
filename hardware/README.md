@@ -15,15 +15,6 @@ Installing the relay server and exposing it publicly (nginx) is covered in [`../
 
 ## 0. Versions
 
-| Version | Changes | Task |
-|---|---|---|
-| 0.1.0 | Initial release | SOO-597 |
-| 0.1.1 (relay contract build) | Adds relay server `resets` and `status` | SOO-599 |
-| 0.1.1 (LCD fix build) | 0.1.0 + fix for the LCD transfer alignment defect (`Exception (9)`). Screen output confirmed on the real device on 2026-11-14 | SOO-597 |
-| 0.1.2 | HTTPS root CA check (default), selectable check mode, usage fetch deferred until time is synchronized, token exposure warning, TLS memory figures in `/api/status` | SOO-600 |
-| 0.1.3 | 0.1.2 merged with the alignment fix from the LCD fix build. No functional changes | SOO-612 |
-| **0.2.0** | **Three screen designs (A, B, C) with fixed/auto-cycle setting, circular usage gauges (arc drawing), 56px time font, redraw of changed regions only.** Includes all 0.1.3 features (HTTPS check, LCD alignment fix) | SOO-619 |
-
 > **CAUTION** — Version 0.1.1 is used as the version string by two different builds. 0.1.2 lacks the LCD alignment fix, so **on the real device it reboots repeatedly with `Exception (9)` right after boot** (confirmed from 0.1.0 device logs; 0.1.2 has the same code). Do not use 0.1.2; use 0.2.0 (or 0.1.3). The procedure for upgrading from 0.1.3 or 0.1.1 (LCD fix build) to 0.2.0 is in Section 9.3.
 
 > **NOTE** — 0.2.0 has not yet been checked on the real device. Items marked `UNVERIFIED` in the Section 1 table will be checked after flashing the clock.

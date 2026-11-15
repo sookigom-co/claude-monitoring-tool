@@ -13,12 +13,6 @@ The clock firmware is in [`../hardware/README.md`](../hardware/README.md).
 
 The Anthropic OAuth token stays inside the relay server only. The clock receives only the usage numbers.
 
-| Version | Changes | Task |
-|---|---|---|
-| 1.0.0 | Initial release | SOO-598 |
-| 1.1.0 | Default bind `127.0.0.1`, per-client-address lockout on repeated wrong tokens (`429`), recognition of the real client address behind a reverse proxy, bundled Caddy config | SOO-600 |
-| **1.2.0** | **Switched to an nginx front proxy on a separate server.** `RELAY_TRUSTED_PROXIES` accepts CIDR (`10.0.0.0/24`) and IPv4-mapped addresses, refuses to start on invalid values, warns when the proxy setting is missing, ignores `X-Forwarded-For` values that are not IPs. Bundled nginx config file, removed Caddy config | SOO-612 |
-
 ## 0. Verification status
 
 | Item | Status |
