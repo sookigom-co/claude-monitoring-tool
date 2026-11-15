@@ -9,7 +9,6 @@
 #define OUTPUT 1
 #define MSBFIRST 1
 #define pgm_read_word(addr) (*reinterpret_cast<const uint16_t *>(addr))
-#define memcpy_P memcpy
 
 void pinMode(uint8_t pin, uint8_t mode);
 void digitalWrite(uint8_t pin, uint8_t value);

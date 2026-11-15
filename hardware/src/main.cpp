@@ -33,6 +33,7 @@ String chipSuffix() {
 
 void applySettings() {
   lcd.setBrightness(cfg.brightness);
+  ui::setLang(cfg.lang);
   configTime(cfg.tz.c_str(), "pool.ntp.org", "time.google.com");
   // Saving restarts the cycle at the chosen design so the change shows at once.
   layoutCycle.restart(millis());
@@ -53,25 +54,17 @@ bool connectSavedWifi() {
 void setupOta(const String &hostname) {
   ArduinoOTA.setHostname(hostname.c_str());
   ArduinoOTA.setPassword(cfg.adminPass.c_str());
-  ArduinoOTA.onStart([] { ui::showMessage("업데이트 중", "ArduinoOTA"); });
-  ArduinoOTA.onEnd([] { ui::showMessage("완료", "재시작"); });
+  ArduinoOTA.onStart([] { ui::showMessage(Msg::Updating, "ArduinoOTA"); });
+  ArduinoOTA.onEnd([] { ui::showMessage(Msg::Done, Msg::Restarting); });
   ArduinoOTA.onError([](ota_error_t error) {
     char buf[24];
     snprintf(buf, sizeof(buf), "OTA error %d", static_cast<int>(error));
-    ui::showMessage("오류", buf);
+    ui::showMessage(Msg::Error, buf);
     delay(2000);
     ui::invalidate();
   });
   ArduinoOTA.begin(true);
   MDNS.addService("http", "tcp", 80);
-}
-
-const char *securityNotice() {
-  switch (settings::tokenWarning(cfg)) {
-    case TokenWarning::NoCertCheck: return "인증서 검증 안 함";
-    case TokenWarning::Plaintext: return "토큰 평문 전송";
-    default: return "";
-  }
 }
 
 void serviceUsage() {
@@ -95,6 +88,7 @@ void setup() {
   lcd.begin(boardLcdPins());
   if (!settings::begin(cfg)) Serial.println("LittleFS mount failed; settings are not persisted");
   lcd.setBrightness(cfg.brightness);
+  ui::setLang(cfg.lang);
   ui::begin(lcd);
 
   const String suffix = chipSuffix();
@@ -107,7 +101,7 @@ void setup() {
   WiFi.setAutoReconnect(true);
 
   if (WiFi.SSID().isEmpty()) web::runPortal(cfg, apName, 0);
-  ui::showMessage("Wi-Fi 연결 중", WiFi.SSID().c_str());
+  ui::showMessage(Msg::ConnectingWifi, WiFi.SSID().c_str());
   if (!connectSavedWifi()) web::runPortal(cfg, apName, PORTAL_RETRY_TIMEOUT_MS);
   Serial.printf("Wi-Fi connected: %s\n", WiFi.localIP().toString().c_str());
 
@@ -130,7 +124,7 @@ void loop() {
   if (millis() - lastUiMs >= 100) {
     lastUiMs = millis();
     ui::setLayout(layoutCycle.active(cfg, millis()));
-    ui::draw(time(nullptr) > usage::VALID_EPOCH, WiFi.status() == WL_CONNECTED, securityNotice(), usageState,
+    ui::draw(time(nullptr) > usage::VALID_EPOCH, WiFi.status() == WL_CONNECTED, settings::tokenWarning(cfg), usageState,
              !cfg.usageUrl.isEmpty());
   }
   delay(5);

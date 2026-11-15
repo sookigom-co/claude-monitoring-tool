@@ -21,7 +21,10 @@ constexpr int16_t INNER_W = Lcd::W - 2 * MARGIN;
 constexpr uint8_t GAUGES = 2;
 constexpr int16_t INLINE_GAP = 5;
 
-const char *const WEEKDAYS[7] = {"일", "월", "화", "수", "목", "금", "토"};
+// Three bytes per entry: English abbreviations and Korean UTF-8 syllables alike.
+const char WEEKDAYS_EN[] PROGMEM = "SunMonTueWedThuFriSat";
+const char WEEKDAYS_KO[] PROGMEM = "일월화수목금토";
+const char MONTHS_EN[] PROGMEM = "JanFebMarAprMayJunJulAugSepOctNovDec";
 // Gauge 0 is the outer/left/first gauge, gauge 1 the inner/right/second, matching the relay item order.
 const char *const DEFAULT_LABELS[GAUGES] = {"Claude", "Fable"};
 
@@ -85,6 +88,7 @@ struct GaugeView {
 
 Lcd *lcd = nullptr;
 Layout current = Layout::C;
+Lang lang = Lang::Ko;
 bool dirty = true;
 int16_t timeW = 0;
 char lastHm[8];
@@ -195,29 +199,48 @@ void gaugeView(const UsageState &state, uint8_t i, GaugeView &out) {
   }
 }
 
+Msg warningText(TokenWarning warning) {
+  return warning == TokenWarning::NoCertCheck ? Msg::NoCertCheck : Msg::TokenPlaintext;
+}
+
 // One status line at the bottom. Warnings win over the reset time, which wins over the data age.
-uint16_t footerText(const LayoutSpec &spec, bool timeValid, bool wifiUp, const char *notice,
+uint16_t footerText(const LayoutSpec &spec, bool timeValid, bool wifiUp, TokenWarning warning,
                     const UsageState &state, bool configured, char *out, size_t n) {
   char header[40];
-  const bool usageWarn = usage::headerText(state, configured, millis(), header, sizeof(header));
+  const bool usageWarn = usage::headerText(state, configured, millis(), lang, header, sizeof(header));
   if (timeValid && !wifiUp) {
-    strlcpy(out, "Wi-Fi 연결 끊김", n);
+    i18n::copy(lang, Msg::WifiLost, out, n);
     return WARN;
   }
   if (usageWarn) {
     strlcpy(out, header, n);
     return WARN;
   }
-  if (notice && notice[0]) {
-    strlcpy(out, notice, n);
+  if (warning != TokenWarning::None) {
+    i18n::copy(lang, warningText(warning), out, n);
     return WARN;
   }
   const char *resets = "";
   for (uint8_t i = 0; state.haveData && i < state.count && !resets[0]; i++) resets = state.items[i].resets;
-  if (resets[0] && spec.footerShowsAge) snprintf(out, n, "초기화 %s · %s", resets, header);
-  else if (resets[0]) snprintf(out, n, "초기화 %s", resets);
+  if (resets[0] && spec.footerShowsAge) snprintf_P(out, n, i18n::text(lang, Msg::ResetsAndStatus), resets, header);
+  else if (resets[0]) snprintf_P(out, n, i18n::text(lang, Msg::Resets), resets);
   else strlcpy(out, header, n);
   return FOOT;
+}
+
+void formatDate(const struct tm &t, char *out, size_t n) {
+  char wday[4], month[4];
+  const uint8_t w = t.tm_wday % 7;
+  if (lang == Lang::En) {
+    memcpy_P(wday, WEEKDAYS_EN + 3 * w, 3);
+    memcpy_P(month, MONTHS_EN + 3 * (t.tm_mon % 12), 3);
+    wday[3] = month[3] = '\0';
+    snprintf_P(out, n, PSTR("%s, %s %d"), wday, month, t.tm_mday);
+  } else {
+    memcpy_P(wday, WEEKDAYS_KO + 3 * w, 3);
+    wday[3] = '\0';
+    snprintf_P(out, n, PSTR("%d월 %d일 %s요일"), t.tm_mon + 1, t.tm_mday, wday);
+  }
 }
 
 }  // namespace
@@ -240,6 +263,12 @@ void setLayout(Layout layout) {
   dirty = true;
 }
 
+void setLang(Lang next) {
+  if (next == lang) return;
+  lang = next;
+  dirty = true;
+}
+
 void showMessage(const char *title, const char *line1, const char *line2, const char *line3) {
   lcd->fillScreen(BG);
   lcd->drawText(FONT_M, MARGIN, 40, INNER_W, ALIGN_CENTER, title, ACCENT, BG);
@@ -249,21 +278,36 @@ void showMessage(const char *title, const char *line1, const char *line2, const 
   dirty = true;
 }
 
+void showMessage(Msg title, const char *line1) {
+  char t[32];
+  i18n::copy(lang, title, t, sizeof(t));
+  showMessage(t, line1);
+}
+
+void showMessage(Msg title, Msg line1) {
+  char l[32];
+  i18n::copy(lang, line1, l, sizeof(l));
+  showMessage(title, l);
+}
+
 void showSetup(const char *apName, const char *apPass, const char *adminPass) {
   char buf[64];
   lcd->fillScreen(BG);
-  lcd->drawText(FONT_M, MARGIN, 6, INNER_W, ALIGN_CENTER, "설정 모드", ACCENT, BG);
+  i18n::copy(lang, Msg::SetupMode, buf, sizeof(buf));
+  lcd->drawText(FONT_M, MARGIN, 6, INNER_W, ALIGN_CENTER, buf, ACCENT, BG);
   lcd->drawText(FONT_S, MARGIN, 44, INNER_W, ALIGN_LEFT, "Wi-Fi", DIM, BG);
   lcd->drawText(FONT_M, MARGIN, 64, INNER_W, ALIGN_LEFT, apName, FG, BG);
-  lcd->drawText(FONT_S, MARGIN, 96, INNER_W, ALIGN_LEFT, "비밀번호", DIM, BG);
+  i18n::copy(lang, Msg::Password, buf, sizeof(buf));
+  lcd->drawText(FONT_S, MARGIN, 96, INNER_W, ALIGN_LEFT, buf, DIM, BG);
   lcd->drawText(FONT_M, MARGIN, 116, INNER_W, ALIGN_LEFT, apPass, FG, BG);
-  lcd->drawText(FONT_S, MARGIN, 150, INNER_W, ALIGN_LEFT, "접속 주소  http://192.168.4.1", DIM, BG);
-  snprintf(buf, sizeof(buf), "관리자  admin / %s", adminPass);
+  i18n::copy(lang, Msg::OpenAddress, buf, sizeof(buf));
+  lcd->drawText(FONT_S, MARGIN, 150, INNER_W, ALIGN_LEFT, buf, DIM, BG);
+  snprintf_P(buf, sizeof(buf), i18n::text(lang, Msg::AdminLogin), adminPass);
   lcd->drawText(FONT_S, MARGIN, 176, INNER_W, ALIGN_LEFT, buf, WARN, BG);
   dirty = true;
 }
 
-void draw(bool timeValid, bool wifiUp, const char *notice, const UsageState &state, bool configured) {
+void draw(bool timeValid, bool wifiUp, TokenWarning warning, const UsageState &state, bool configured) {
   if (dirty) invalidate();
   const LayoutSpec &spec = LAYOUTS[static_cast<uint8_t>(current)];
 
@@ -274,10 +318,10 @@ void draw(bool timeValid, bool wifiUp, const char *notice, const UsageState &sta
     struct tm t;
     localtime_r(&now, &t);
     snprintf(hm, sizeof(hm), "%02d:%02d", t.tm_hour, t.tm_min);
-    snprintf(date, sizeof(date), "%d월 %d일 %s요일", t.tm_mon + 1, t.tm_mday, WEEKDAYS[t.tm_wday % 7]);
+    formatDate(t, date, sizeof(date));
   } else {
     strlcpy(hm, "--:--", sizeof(hm));
-    strlcpy(date, wifiUp ? "시간 동기화 중" : "Wi-Fi 연결 중", sizeof(date));
+    i18n::copy(lang, wifiUp ? Msg::SyncingTime : Msg::ConnectingWifi, date, sizeof(date));
     dateColor = WARN;
   }
   if (strcmp(hm, lastHm)) {
@@ -297,7 +341,7 @@ void draw(bool timeValid, bool wifiUp, const char *notice, const UsageState &sta
   }
 
   char footer[sizeof(lastFooter)];
-  const uint16_t footerColor = footerText(spec, timeValid, wifiUp, notice, state, configured, footer, sizeof(footer));
+  const uint16_t footerColor = footerText(spec, timeValid, wifiUp, warning, state, configured, footer, sizeof(footer));
   fitText(FONT_XS, spec.footer.w, footer);
   if (strcmp(footer, lastFooter) || footerColor != lastFooterColor) {
     strlcpy(lastFooter, footer, sizeof(lastFooter));
