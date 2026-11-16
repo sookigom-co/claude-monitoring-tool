@@ -1,10 +1,15 @@
-# SmartClock — SD Pro Smart Clock Conversion
+> **This project was built 100% under the direction of Claude.**
+> **이 프로젝트는 100% Claude 의 지시하에 만들어졌습니다.**
+
+# Claude Monitoring Tool (클로드 모니터링 도구) — SD Pro Smart Clock Conversion
 
 **[English](#english)** | [한국어](#한국어)
 
 ## English
 
 This project wipes the stock firmware of the SD Pro smart clock (ESP8266) and installs our own firmware, which shows the time together with **weekly Claude and Fable usage** (ring gauges, 3 screen designs, English or Korean display).
+
+- Clock used in this project (SD Pro smart clock): [buy on AliExpress](https://s.click.aliexpress.com/e/_c2IU0b1X)
 
 | Folder | Contents | Current version | Manual |
 |---|---|---|---|
@@ -53,6 +58,8 @@ This repository contains no tokens, credentials, or Wi-Fi passwords. `.gitignore
 ## 한국어
 
 SD Pro 스마트 클락(ESP8266)의 순정 펌웨어를 지우고 자체 펌웨어를 올려, 시계와 **Claude·Fable 주간 사용률**(원형 게이지, 화면 디자인 3종, 영어·한국어 표시)을 함께 표시하는 프로젝트입니다.
+
+- 이 프로젝트에 쓴 시계(SD Pro 스마트 클락): [AliExpress 에서 구매](https://s.click.aliexpress.com/e/_c2IU0b1X)
 
 | 폴더 | 내용 | 현재 버전 | 사용 설명서 |
 |---|---|---|---|

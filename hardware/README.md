@@ -144,7 +144,18 @@ One line of garbled characters right after boot is normal (text printed by the E
 
 - Always tie the adapter GND and the clock GND together.
 - Powering on with GPIO0 tied to GND boots into download mode. In this state no firmware runs.
-- A photo showing the wiring locations is attached to SOO-596 as `SOO-596-wiring.png`.
+- Wiring locations on the clock board (front, USB-C at the bottom). Labels in the photo are in Korean: red = adapter RX/TX, black = GND, blue = GPIO0 (IO0) jumper to GND, orange = 3V3 (do not connect when the clock is powered over USB-C).
+
+![Wiring locations on the SD Pro clock board](docs/wiring.png)
+
+| Pad in the photo | Position (bottom row, USB-C at the bottom) | Connect to |
+|---|---|---|
+| TX | rightmost | adapter RX |
+| RX | 2nd from right | adapter TX |
+| GND | leftmost | adapter GND |
+| IO0 | 4th from left | jumper to GND (keep attached while flashing) |
+
+- Before soldering, check continuity with a multimeter: GND pad ↔ USB-C metal shell, and 3V3 pad (top row, leftmost) ↔ regulator heat sink. If either fails, do not solder.
 
 ## 5. Installing the flashing tool (esptool)
 
@@ -466,3 +477,4 @@ Status text (the first matching row from the top). 0.1.x shows it on the right o
 | `test/pc/` | PC tests (`run.sh`, `test_usage.cpp`, Arduino API stand-in headers) |
 | `test/pc/sim/` | Screen PC renderer (fake ST7789), partial update / overlap / cycle / language switch checks, PNG comparison sheet script |
 | `test/pc/web/` | Web page PC renderer (HTML files in both languages) |
+| `docs/wiring.png` | Wiring location photo for the first serial flash (Section 4.2) |
