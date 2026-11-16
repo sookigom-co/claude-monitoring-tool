@@ -11,6 +11,14 @@ This project wipes the stock firmware of the SD Pro smart clock (ESP8266) and in
 
 - Clock used in this project (SD Pro smart clock): [buy on AliExpress](https://s.click.aliexpress.com/e/_c2IU0b1X)
 
+### In use
+
+| Design B — clock on top, two gauges below | Design C — left and right semicircular rings (default) |
+|---|---|
+| ![Clock running design B](hardware/docs/photo-design-b.jpg) | ![Clock running design C](hardware/docs/photo-design-c.jpg) |
+
+Real device running firmware 0.3.0 with Korean display. The screen design is chosen on the settings page (hardware manual, Section 8.2).
+
 | Folder | Contents | Current version | Manual |
 |---|---|---|---|
 | [`hardware/`](hardware/) | Clock firmware (PlatformIO · Arduino ESP8266) | **0.3.0** | [English](hardware/README.md) · [한국어](hardware/README.ko.md) |
@@ -60,6 +68,14 @@ This repository contains no tokens, credentials, or Wi-Fi passwords. `.gitignore
 SD Pro 스마트 클락(ESP8266)의 순정 펌웨어를 지우고 자체 펌웨어를 올려, 시계와 **Claude·Fable 주간 사용률**(원형 게이지, 화면 디자인 3종, 영어·한국어 표시)을 함께 표시하는 프로젝트입니다.
 
 - 이 프로젝트에 쓴 시계(SD Pro 스마트 클락): [AliExpress 에서 구매](https://s.click.aliexpress.com/e/_c2IU0b1X)
+
+### 실제 사용 모습
+
+| 디자인 B — 위 시계 + 아래 게이지 2개 | 디자인 C — 좌우 반원 링 (기본) |
+|---|---|
+| ![디자인 B 로 동작 중인 시계](hardware/docs/photo-design-b.jpg) | ![디자인 C 로 동작 중인 시계](hardware/docs/photo-design-c.jpg) |
+
+펌웨어 0.3.0, 한국어 표시로 동작 중인 실기기입니다. 화면 디자인은 설정 페이지에서 고릅니다(`hardware/README.ko.md` 8.2절).
 
 | 폴더 | 내용 | 현재 버전 | 사용 설명서 |
 |---|---|---|---|

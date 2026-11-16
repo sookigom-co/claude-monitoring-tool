@@ -34,7 +34,8 @@ Installing the relay server and exposing it publicly (nginx) is covered in [`../
 | LCD pin defaults (Section 3) | `CONFIRMED` — screen output on the board's real device (LCD fix build 0.1.1) on 2026-11-14 |
 | Serial flashing procedure (CP2102, macOS) | `CONFIRMED` — the board flashed using the same procedure on 2026-11-14 |
 | Built-in root certificates | `CONFIRMED` — `tools/gen_ca_roots.py` checks the SHA-256 fingerprints against fixed values. ISRG Root X1 `96bcec06…bddf08c6`, X2 `69729b8e…3ccb1470` |
-| 0.2.0/0.3.0 screen on the real device (colors, layout, arc drawing time, English text) | `UNVERIFIED` — requires the real device. One design change computes roughly 20,000–30,000 ring pixels in floating point |
+| 0.3.0 screen on the real device, designs B and C in Korean | `CONFIRMED` — photos in Section 8.2 (2026-11-16) |
+| 0.2.0/0.3.0 screen on the real device: design A, English text, arc drawing time | `UNVERIFIED` — requires the real device. One design change computes roughly 20,000–30,000 ring pixels in floating point |
 | Chunked web page delivery on the real device | `UNVERIFIED` — requires the real device. Checked on the PC only (Section 8.3) |
 | Wi-Fi setup portal, NTP, usage fetch, both OTA methods | `UNVERIFIED` — no real-device results yet |
 | Connecting to a real Let's Encrypt server (nginx) with CA check | `UNVERIFIED` — requires a real domain |
@@ -290,6 +291,12 @@ python3 tools/verify_flash.py dump.bin smartclock-0.3.0-firmware.bin
 
 These are the three items in the `Display` group on the settings page. Saving changes the screen immediately, without a restart.
 
+| Design B | Design C (default) |
+|---|---|
+| ![Clock running design B](docs/photo-design-b.jpg) | ![Clock running design C](docs/photo-design-c.jpg) |
+
+Real device running 0.3.0 with Korean display.
+
 | Item | Setting (`settings.json` key) | Default | Meaning |
 |---|---|---|---|
 | Screen design | `layout` = `A` / `B` / `C` | `C` | A concentric rings (outer Claude, inner Fable) / B clock on top + two 270° gauges below / C left and right semicircular rings (left Claude, right Fable) |
@@ -478,3 +485,4 @@ Status text (the first matching row from the top). 0.1.x shows it on the right o
 | `test/pc/sim/` | Screen PC renderer (fake ST7789), partial update / overlap / cycle / language switch checks, PNG comparison sheet script |
 | `test/pc/web/` | Web page PC renderer (HTML files in both languages) |
 | `docs/wiring.png` | Wiring location photo for the first serial flash (Section 4.2) |
+| `docs/photo-design-b.jpg`, `docs/photo-design-c.jpg` | Real device photos of designs B and C (Section 8.2) |

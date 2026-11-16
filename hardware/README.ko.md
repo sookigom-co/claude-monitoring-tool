@@ -34,7 +34,8 @@ SD Pro 스마트 클락(ESP-12F / ESP8266, 4MB flash, ST7789 240×240 LCD)에 �
 | LCD 핀 기본값 (3장) | `CONFIRMED` — 2026-11-14 보드 실기기(LCD 수정판 0.1.1)에서 화면 표시 |
 | 시리얼 기록 절차 (CP2102, macOS) | `CONFIRMED` — 2026-11-14 보드가 같은 절차로 기록 |
 | 내장 루트 인증서 | `CONFIRMED` — `tools/gen_ca_roots.py` 가 SHA-256 지문을 고정값과 대조. ISRG Root X1 `96bcec06…bddf08c6`, X2 `69729b8e…3ccb1470` |
-| 0.2.0·0.3.0 실기기 화면(색상·배치·원호 그리기 시간·영어 문구) | `UNVERIFIED` — 실기기 필요. 디자인 전환 1회에 링 픽셀 약 2만~3만 개를 부동소수점으로 계산합니다 |
+| 0.3.0 실기기 화면, 디자인 B·C 한국어 | `CONFIRMED` — 8.2절 사진 (2026-11-16) |
+| 0.2.0·0.3.0 실기기 화면: 디자인 A, 영어 문구, 원호 그리기 시간 | `UNVERIFIED` — 실기기 필요. 디자인 전환 1회에 링 픽셀 약 2만~3만 개를 부동소수점으로 계산합니다 |
 | 실기기에서 웹페이지 조각 전송 | `UNVERIFIED` — 실기기 필요. PC 에서만 확인했습니다(8.3절) |
 | Wi-Fi 설정 포털, NTP, 사용량 조회, OTA 2종 | `UNVERIFIED` — 실기기 확인 결과가 아직 없습니다 |
 | CA 검증으로 실제 Let's Encrypt 서버(nginx) 접속 | `UNVERIFIED` — 실제 도메인 필요 |
@@ -292,6 +293,12 @@ python3 tools/verify_flash.py dump.bin smartclock-0.3.0-firmware.bin
 
 설정 페이지 `화면`(영어 `Display`) 묶음의 세 항목입니다. 저장하면 재시작 없이 바로 화면이 바뀝니다.
 
+| 디자인 B | 디자인 C (기본) |
+|---|---|
+| ![디자인 B 로 동작 중인 시계](docs/photo-design-b.jpg) | ![디자인 C 로 동작 중인 시계](docs/photo-design-c.jpg) |
+
+0.3.0, 한국어 표시로 동작 중인 실기기입니다.
+
 | 항목 | 설정값 (`settings.json` 키) | 기본 | 뜻 |
 |---|---|---|---|
 | 화면 디자인 (Screen design) | `layout` = `A` / `B` / `C` | `C` | A 동심원 링(바깥 Claude, 안쪽 Fable) / B 위 시계 + 아래 270° 게이지 2개 / C 좌우 반원 링(왼쪽 Claude, 오른쪽 Fable) |
@@ -480,3 +487,4 @@ Wi-Fi·관리자 비밀번호·URL·토큰·검증 방식·시간대·밝기 설
 | `test/pc/sim/` | 화면 PC 렌더러(가짜 ST7789), 부분 갱신·겹침·순환·언어 전환 검사, PNG 비교표 스크립트 |
 | `test/pc/web/` | 웹페이지 PC 렌더러(두 언어 HTML 파일) |
 | `docs/wiring.png` | 첫 시리얼 기록용 연결 위치 사진 (4.2절) |
+| `docs/photo-design-b.jpg`, `docs/photo-design-c.jpg` | 디자인 B·C 실기기 사진 (8.2절) |
