@@ -4,11 +4,19 @@
 
 #include "settings.h"
 
+// Increase values in tenths of a percentage point, with two markers for "no value".
+constexpr int16_t DELTA_MISSING = INT16_MIN;     // the relay did not send the field (1.2.0 or older)
+constexpr int16_t DELTA_NO_SAMPLE = INT16_MIN + 1;  // the relay sent null: no comparison sample yet
+constexpr uint8_t HOURLY_SLOTS = 24;
+
 struct UsageItem {
   char label[17];
   char value[21];
   int8_t pct;
   char resets[12];
+  int16_t delta1h;
+  int16_t delta24h;
+  int16_t hourly[HOURLY_SLOTS];  // oldest first, the last slot is the previous clock hour
 };
 
 enum class RelayStatus : uint8_t { Unknown, Ok, Stale, Error };
@@ -34,6 +42,7 @@ struct UsageState {
   char period[8] = "";
   uint8_t count = 0;
   UsageItem items[MAX_ITEMS] = {};
+  bool haveHourly = false;  // the last response carried hourly values
   RelayStatus relayStatus = RelayStatus::Unknown;
   char relayError[13] = "";
   String lastError;
@@ -46,8 +55,11 @@ constexpr size_t MAX_BODY = 4096;
 constexpr time_t VALID_EPOCH = 1700000000;
 
 bool parse(const char *json, size_t len, UsageState &out);
+// Writes "+1.4%", "-0.3%", the no-sample text or "--" for a DELTA_* value.
+void deltaText(int16_t tenths, Lang lang, char *out, size_t n);
 // Formats the usage header status into out; returns true when it should be drawn as a warning.
 bool headerText(const UsageState &state, bool configured, uint32_t nowMs, Lang lang, char *out, size_t n);
-bool fetch(const Settings &s, UsageState &state);
+// Fetches the relay response, adding ?hourly=1 when withHourly is set.
+bool fetch(const Settings &s, UsageState &state, bool withHourly);
 
 }  // namespace usage

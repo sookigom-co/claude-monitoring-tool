@@ -20,6 +20,9 @@ constexpr int16_t MARGIN = 8;
 constexpr int16_t INNER_W = Lcd::W - 2 * MARGIN;
 constexpr uint8_t GAUGES = 2;
 constexpr int16_t INLINE_GAP = 5;
+constexpr int16_t CHART_GAP = 2;
+constexpr int16_t CHART_ZERO_H = 2;
+constexpr int16_t CHART_MIN_SCALE = 20;  // tenths of a percentage point at full column height
 
 // Three bytes per entry: English abbreviations and Korean UTF-8 syllables alike.
 const char WEEKDAYS_EN[] PROGMEM = "SunMonTueWedThuFriSat";
@@ -49,6 +52,7 @@ enum class Labels : uint8_t {
   Stacked,  // label in FONT_S above or below a FONT_P percentage, each centred in its box
   Inline,   // "label pct" on one line in FONT_S + FONT_PS; label[i].y is the top of the percentage
   Row,      // FONT_M label on the left, FONT_L number with a FONT_P "%" right-aligned in pct[i]
+  Compact,  // FONT_M label on the left, FONT_P percentage right-aligned in pct[i]
 };
 
 enum class FooterStatus : uint8_t {
@@ -66,7 +70,10 @@ struct LayoutSpec {
   Box pct[GAUGES];
   Box footer;
   FooterStatus footerStatus;
-  Box header;  // FONT_XS period title when w > 0
+  Box header;  // FONT_XS title when w > 0
+  Msg title;
+  BarSpec chart[GAUGES];  // hourly increase columns drawn instead of the gauge when w > 0
+  Box delta[GAUGES];      // FONT_XS "1h +1.4% · 24h +11.2%" line when w > 0
 };
 
 // Geometry follows the SOO-618 and SOO-655 mock-ups at 1:1 scale.
@@ -80,6 +87,9 @@ const LayoutSpec LAYOUTS[LAYOUT_COUNT] = {
      {},
      {66, 169, 108},
      FooterStatus::None,
+     {},
+     Msg::Last7Days,
+     {},
      {}},
     // B: clock on top, two 270-degree gauges below, open at the bottom.
     {{{62, 162, 41, 3.5f, 225, 270, false, {}}, {178, 162, 41, 3.5f, 225, 270, false, {}}},
@@ -90,6 +100,9 @@ const LayoutSpec LAYOUTS[LAYOUT_COUNT] = {
      {{30, 154, 64}, {146, 154, 64}},
      {MARGIN, 221, INNER_W},
      FooterStatus::Age,
+     {},
+     Msg::Last7Days,
+     {},
      {}},
     // C: left half ring for Claude, right half ring for Fable, both filling upwards from the bottom.
     {{{120, 120, 108, 7, 213.69f, 112.62f, false, {}}, {120, 120, 108, 7, 33.69f, 112.62f, true, {}}},
@@ -100,6 +113,9 @@ const LayoutSpec LAYOUTS[LAYOUT_COUNT] = {
      {{56, 179, 60}, {124, 179, 60}},
      {50, 218, 140},
      FooterStatus::None,
+     {},
+     Msg::Last7Days,
+     {},
      {}},
     // D: usage only, a name and a large number over a full-width bar for Claude, then the same for Fable.
     {{{0, 0, 0, 0, 0, 0, false, {18, 100, 204, 8}}, {0, 0, 0, 0, 0, 0, false, {18, 190, 204, 8}}},
@@ -110,12 +126,32 @@ const LayoutSpec LAYOUTS[LAYOUT_COUNT] = {
      {{100, 46, 122}, {100, 136, 122}},
      {MARGIN, 218, INNER_W},
      FooterStatus::AgeAndStale,
-     {MARGIN, 8, INNER_W}},
+     {MARGIN, 8, INNER_W},
+     Msg::Last7Days,
+     {},
+     {}},
+    // E: usage only, a name and the current percentage over 24 hourly increase columns and the 1h/24h increase.
+    {{},
+     -1,
+     {},
+     Labels::Compact,
+     {{18, 22, 100}, {18, 120, 100}},
+     {{122, 26, 100}, {122, 124, 100}},
+     {MARGIN, 220, INNER_W},
+     FooterStatus::AgeAndStale,
+     {MARGIN, 4, INNER_W},
+     Msg::Last24Hours,
+     {{25, 53, 190, 38}, {25, 151, 190, 38}},
+     {{18, 95, 204}, {18, 193, 204}}},
 };
 
 struct GaugeView {
   char label[17];
   int8_t pct;  // -1 when unknown
+  int16_t delta1h;
+  int16_t delta24h;
+  int16_t hourly[HOURLY_SLOTS];
+  int16_t scale;  // tenths of a percentage point at full column height, shared by both charts
 };
 
 Lcd *lcd = nullptr;
@@ -211,6 +247,51 @@ void drawRowValue(const Box &box, int8_t pct, bool signShown) {
   lcd->fillRect(signX, signBottom, signW, bottom - signBottom, BG);
 }
 
+// Draws hourly increases as columns: track only for no sample, a thin floor line for zero or less, else a fill.
+void drawChart(const BarSpec &c, const int16_t *hourly, int16_t scale) {
+  const int16_t colW = (c.w + CHART_GAP) / HOURLY_SLOTS - CHART_GAP;
+  for (uint8_t i = 0; i < HOURLY_SLOTS; i++) {
+    const int16_t x = c.x + i * (colW + CHART_GAP);
+    const int16_t v = hourly[i];
+    int16_t fillH = 0;
+    uint16_t fillColor = ACCENT;
+    if (v != DELTA_NO_SAMPLE && v <= 0) {
+      fillH = CHART_ZERO_H;
+      fillColor = DIM;
+    } else if (v != DELTA_NO_SAMPLE) {
+      fillH = static_cast<int16_t>((static_cast<int32_t>(v) * c.h + scale / 2) / scale);
+      fillH = constrain(fillH, CHART_ZERO_H, c.h);
+    }
+    lcd->fillRect(x, c.y, colW, c.h - fillH, TRACK);
+    if (fillH) lcd->fillRect(x, c.y + c.h - fillH, colW, fillH, fillColor);
+  }
+}
+
+uint16_t deltaColor(int16_t tenths) { return tenths == DELTA_MISSING || tenths == DELTA_NO_SAMPLE ? DIM : FG; }
+
+// Draws "1h <value> · 24h <value>" with dim names and bright known values, repainting the whole box.
+void drawDeltas(const Box &box, int16_t delta1h, int16_t delta24h) {
+  char v1[24], v24[24];
+  usage::deltaText(delta1h, lang, v1, sizeof(v1));
+  usage::deltaText(delta24h, lang, v24, sizeof(v24));
+  const struct {
+    const char *text;
+    uint16_t color;
+  } parts[] = {
+      {"1h ", DIM}, {v1, deltaColor(delta1h)}, {" \xC2\xB7 ", DIM}, {"24h ", DIM}, {v24, deltaColor(delta24h)},
+  };
+  const int16_t right = box.x + box.w;
+  int16_t x = box.x;
+  for (const auto &part : parts) {
+    const int16_t tw = lcd->textWidth(FONT_XS, part.text);
+    const int16_t w = tw < right - x ? tw : right - x;
+    if (w <= 0) break;
+    lcd->drawText(FONT_XS, x, box.y, w, ALIGN_LEFT, part.text, part.color, BG);
+    x += w;
+  }
+  if (x < right) lcd->fillRect(x, box.y, right - x, Lcd::lineHeight(FONT_XS), BG);
+}
+
 // Drops trailing words until text fits w, so "서버 오류 usage_http_5" becomes "서버 오류" rather than being cut mid-word.
 void fitText(const Font &font, int16_t w, char *text) {
   while (lcd->textWidth(font, text) > w) {
@@ -228,9 +309,16 @@ void drawGauge(const LayoutSpec &spec, uint8_t i, const GaugeView &view) {
   const bool fresh = !gaugeDrawn[i];
   const bool pctChanged = fresh || view.pct != last.pct;
   const bool labelChanged = fresh || strcmp(view.label, last.label);
-  if (!pctChanged && !labelChanged) return;
+  const bool chart = spec.chart[i].w > 0;
+  const bool chartChanged =
+      chart && (fresh || view.scale != last.scale || memcmp(view.hourly, last.hourly, sizeof(view.hourly)));
+  const bool deltaChanged =
+      spec.delta[i].w > 0 && (fresh || view.delta1h != last.delta1h || view.delta24h != last.delta24h);
+  if (!pctChanged && !labelChanged && !chartChanged && !deltaChanged) return;
 
-  if (pctChanged) drawTrack(spec.gauges[i], view.pct);
+  if (chartChanged) drawChart(spec.chart[i], view.hourly, view.scale);
+  if (deltaChanged) drawDeltas(spec.delta[i], view.delta1h, view.delta24h);
+  if (pctChanged && !chart) drawTrack(spec.gauges[i], view.pct);
   char pct[8];
   pctText(view.pct, pct, sizeof(pct));
   if (spec.labels == Labels::Inline) {
@@ -241,6 +329,15 @@ void drawGauge(const LayoutSpec &spec, uint8_t i, const GaugeView &view) {
       lcd->drawText(FONT_M, b.x, b.y, b.w, ALIGN_LEFT, view.label, DIM, BG);
     }
     if (pctChanged) drawRowValue(spec.pct[i], view.pct, !fresh && last.pct >= 0);
+  } else if (spec.labels == Labels::Compact) {
+    if (labelChanged) {
+      const Box &b = spec.label[i];
+      lcd->drawText(FONT_M, b.x, b.y, b.w, ALIGN_LEFT, view.label, DIM, BG);
+    }
+    if (pctChanged) {
+      const Box &b = spec.pct[i];
+      lcd->drawText(FONT_P, b.x, b.y, b.w, ALIGN_RIGHT, pct, FG, BG);
+    }
   } else {
     if (labelChanged) {
       const Box &b = spec.label[i];
@@ -255,14 +352,28 @@ void drawGauge(const LayoutSpec &spec, uint8_t i, const GaugeView &view) {
   gaugeDrawn[i] = true;
 }
 
-void gaugeView(const UsageState &state, uint8_t i, GaugeView &out) {
-  if (state.haveData && i < state.count) {
-    strlcpy(out.label, state.items[i].label, sizeof(out.label));
-    out.pct = state.items[i].pct;
-  } else {
-    strlcpy(out.label, DEFAULT_LABELS[i], sizeof(out.label));
-    out.pct = -1;
+// A relay error or a missing response leaves the increases unknown ("--") rather than "no sample".
+void gaugeView(const UsageState &state, uint8_t i, int16_t scale, GaugeView &out) {
+  const bool have = state.haveData && i < state.count;
+  const UsageItem *item = have ? &state.items[i] : nullptr;
+  const bool deltas = have && state.relayStatus != RelayStatus::Error;
+  strlcpy(out.label, have ? item->label : DEFAULT_LABELS[i], sizeof(out.label));
+  out.pct = have ? item->pct : -1;
+  out.delta1h = deltas ? item->delta1h : DELTA_MISSING;
+  out.delta24h = deltas ? item->delta24h : DELTA_MISSING;
+  for (uint8_t h = 0; h < HOURLY_SLOTS; h++) out.hourly[h] = deltas && state.haveHourly ? item->hourly[h] : DELTA_NO_SAMPLE;
+  out.scale = scale;
+}
+
+// The larger of CHART_MIN_SCALE and the biggest hourly increase of the shown items, so both charts share one scale.
+int16_t chartScale(const UsageState &state) {
+  int16_t scale = CHART_MIN_SCALE;
+  for (uint8_t i = 0; state.haveData && state.haveHourly && i < state.count && i < GAUGES; i++) {
+    for (uint8_t h = 0; h < HOURLY_SLOTS; h++) {
+      if (state.items[i].hourly[h] > scale) scale = state.items[i].hourly[h];
+    }
   }
+  return scale;
 }
 
 Msg warningText(TokenWarning warning) {
@@ -413,15 +524,16 @@ void draw(bool timeValid, bool wifiUp, TokenWarning warning, const UsageState &s
 
   if (spec.header.w > 0 && !headerDrawn) {
     char title[32];
-    i18n::copy(lang, Msg::Last7Days, title, sizeof(title));
+    i18n::copy(lang, spec.title, title, sizeof(title));
     lcd->drawText(FONT_XS, spec.header.x, spec.header.y, spec.header.w, ALIGN_CENTER, title, DIM, BG);
     headerDrawn = true;
   }
   if (spec.timeY >= 0) drawClock(spec, timeValid, wifiUp);
 
+  const int16_t scale = spec.chart[0].w > 0 ? chartScale(state) : CHART_MIN_SCALE;
   for (uint8_t i = 0; i < GAUGES; i++) {
     GaugeView view;
-    gaugeView(state, i, view);
+    gaugeView(state, i, scale, view);
     drawGauge(spec, i, view);
   }
 

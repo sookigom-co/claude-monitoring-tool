@@ -55,7 +55,7 @@ std::unique_ptr<BearSSL::X509List> loadCaRoots() {
 
 }  // namespace
 
-bool fetch(const Settings &s, UsageState &state) {
+bool fetch(const Settings &s, UsageState &state, bool withHourly) {
   state.lastAttemptMs = millis();
   if (s.usageUrl.isEmpty()) return fail(state, F("URL not set"));
   if (WiFi.status() != WL_CONNECTED) return fail(state, F("Wi-Fi down"));
@@ -103,7 +103,9 @@ bool fetch(const Settings &s, UsageState &state) {
   http.setTimeout(8000);
   http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
   http.setReuse(false);
-  if (!http.begin(*client, s.usageUrl)) return fail(state, F("bad URL"));
+  String url = s.usageUrl;
+  if (withHourly) url += url.indexOf('?') < 0 ? F("?hourly=1") : F("&hourly=1");
+  if (!http.begin(*client, url)) return fail(state, F("bad URL"));
   if (s.usageToken.length()) http.addHeader(F("Authorization"), String(F("Bearer ")) + s.usageToken);
   http.addHeader(F("Accept"), F("application/json"));
 

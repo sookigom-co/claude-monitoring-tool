@@ -7,7 +7,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 LANGS = [("en", "English"), ("ko", "한국어")]
 LAYOUTS = [("A", "A안 동심원 링"), ("B", "B안 위 시계 + 아래 게이지"), ("C", "C안 좌우 반원 링 (기본)"),
-           ("D", "D안 사용량 전용 (막대)")]
+           ("D", "D안 사용량 전용 (막대)"), ("E", "E안 시간별 증가 (막대 24칸)")]
 STATES = [("normal", "정상 42% / 55%"), ("pct70", "70%대 74% / 78%"), ("pct90", "90%대 93% / 97%"),
           ("nodata", "데이터 없음 (조회 실패)"), ("relay-error", "relay status=error"),
           ("relay-stale", "relay status=stale"), ("warn-token", "경고: 토큰 평문"), ("warn-cert", "경고: 인증서 미검사"),
@@ -16,6 +16,9 @@ SINGLES = ["setup", "updating", "connecting"]
 MOCKUP = [("normal", "정상 42% / 76%"), ("low", "낮음 15% / 55%"), ("pct90", "90%대 93% / 97%"),
           ("nodata", "데이터 없음"), ("relay-stale", "지연"), ("relay-error", "서버 오류"),
           ("wifi-lost", "Wi-Fi 끊김 100% / 0%"), ("english", "영어")]
+MOCKUP_E = [("normal", "정상 42% / 17%"), ("null", "증가값 null (표본 부족)"), ("reset", "초기화 직후 1% / 0%"),
+            ("relay-error", "서버 오류 (값 없음)"), ("relay-1.2.0", "1.2.0 서버 (필드 없음)"), ("pct90", "90%대 93% / 76%"),
+            ("english", "영어")]
 FONT = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
 SCALE, PAD, HEAD, LEFT = 2, 16, 40, 170
 
@@ -47,6 +50,7 @@ def main():
     rows = [(f"{lang}-{{}}", label) for lang, label in LANGS]
     grid(src, out, font, rows, [(s, s) for s in SINGLES], "sheet-setup.png")
     grid(src, out, font, [("mock-D-{}", "D안 시안 값")], MOCKUP, "sheet-d-mockup.png")
+    grid(src, out, font, [("mock-E-{}", "E안 시안 값")], MOCKUP_E, "sheet-e-mockup.png")
 
 
 if __name__ == "__main__":

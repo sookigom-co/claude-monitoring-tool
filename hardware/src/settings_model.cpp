@@ -4,7 +4,7 @@ namespace settings {
 namespace {
 
 const char *const TLS_MODE_NAMES[] = {"ca", "fingerprint", "insecure"};
-const char *const LAYOUT_NAMES[] = {"A", "B", "C", "D"};
+const char *const LAYOUT_NAMES[] = {"A", "B", "C", "D", "E"};
 static_assert(sizeof(LAYOUT_NAMES) / sizeof(LAYOUT_NAMES[0]) == LAYOUT_COUNT, "one name per layout");
 const char *const LAYOUT_MODE_NAMES[] = {"fixed", "cycle"};
 const char *const LANG_NAMES[] = {"en", "ko"};
@@ -84,6 +84,8 @@ void toJson(const Settings &s, JsonVariant doc) {
 bool isHttps(const Settings &s) { return startsWith(s.usageUrl, "https://"); }
 
 bool needsValidTime(const Settings &s) { return isHttps(s) && s.tlsMode == TlsMode::Ca; }
+
+bool showsHourly(const Settings &s) { return s.layout == Layout::E || s.layoutMode == LayoutMode::Cycle; }
 
 TokenWarning tokenWarning(const Settings &s) {
   if (!s.usageToken.length()) return TokenWarning::None;

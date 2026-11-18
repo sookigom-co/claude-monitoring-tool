@@ -29,7 +29,7 @@ const TlsModeOption TLS_MODE_OPTIONS[] = {
     {TlsMode::Insecure, Txt::TlsInsecure},
 };
 
-const Txt LAYOUT_LABELS[] = {Txt::LayoutA, Txt::LayoutB, Txt::LayoutC, Txt::LayoutD};
+const Txt LAYOUT_LABELS[] = {Txt::LayoutA, Txt::LayoutB, Txt::LayoutC, Txt::LayoutD, Txt::LayoutE};
 static_assert(sizeof(LAYOUT_LABELS) / sizeof(LAYOUT_LABELS[0]) == LAYOUT_COUNT, "one label per layout");
 
 void head(Html &out) {
