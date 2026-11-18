@@ -4,7 +4,8 @@ namespace settings {
 namespace {
 
 const char *const TLS_MODE_NAMES[] = {"ca", "fingerprint", "insecure"};
-const char *const LAYOUT_NAMES[] = {"A", "B", "C"};
+const char *const LAYOUT_NAMES[] = {"A", "B", "C", "D"};
+static_assert(sizeof(LAYOUT_NAMES) / sizeof(LAYOUT_NAMES[0]) == LAYOUT_COUNT, "one name per layout");
 const char *const LAYOUT_MODE_NAMES[] = {"fixed", "cycle"};
 const char *const LANG_NAMES[] = {"en", "ko"};
 

@@ -6,9 +6,9 @@ enum class TlsMode : uint8_t { Ca, Fingerprint, Insecure };
 
 enum class TokenWarning : uint8_t { None, NoCertCheck, Plaintext };
 
-// Screen designs from SOO-618: A concentric rings, B clock over two gauges, C left/right half rings.
-enum class Layout : uint8_t { A, B, C };
-constexpr uint8_t LAYOUT_COUNT = 3;
+// Screen designs (SOO-618, SOO-655): A concentric rings, B clock over gauges, C half rings, D usage-only bars.
+enum class Layout : uint8_t { A, B, C, D };
+constexpr uint8_t LAYOUT_COUNT = 4;
 
 enum class LayoutMode : uint8_t { Fixed, Cycle };
 

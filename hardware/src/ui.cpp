@@ -28,10 +28,16 @@ const char MONTHS_EN[] PROGMEM = "JanFebMarAprMayJunJulAugSepOctNovDec";
 // Gauge 0 is the outer/left/first gauge, gauge 1 the inner/right/second, matching the relay item order.
 const char *const DEFAULT_LABELS[GAUGES] = {"Claude", "Fable"};
 
+// A horizontal round-ended bar filling from the left: left edge, top edge, width and height.
+struct BarSpec {
+  int16_t x, y, w, h;
+};
+
 struct GaugeSpec {
   float cx, cy, rMid, halfW;
   float start, sweep;
   bool fromEnd;  // the fill grows back from the end of the track
+  BarSpec bar;   // drawn instead of the ring when bar.w > 0
 };
 
 // A text box: left edge, top edge and width. The height is the font's line height.
@@ -39,46 +45,72 @@ struct Box {
   int16_t x, y, w;
 };
 
+enum class Labels : uint8_t {
+  Stacked,  // label in FONT_S above or below a FONT_P percentage, each centred in its box
+  Inline,   // "label pct" on one line in FONT_S + FONT_PS; label[i].y is the top of the percentage
+  Row,      // FONT_M label on the left, FONT_L number with a FONT_P "%" right-aligned in pct[i]
+};
+
+enum class FooterStatus : uint8_t {
+  None,         // the reset time alone when there is one
+  Age,          // the reset time followed by the data age
+  AgeAndStale,  // as Age, and a stale relay keeps the reset time in front of the warning
+};
+
 struct LayoutSpec {
   GaugeSpec gauges[GAUGES];
-  int16_t timeY;
+  int16_t timeY;  // negative: no clock and no date
   Box date;
-  bool inlineLabels;  // "label pct" on one line in FONT_S + FONT_PS; label[i].y is the top of the percentage
+  Labels labels;
   Box label[GAUGES];
   Box pct[GAUGES];
   Box footer;
-  bool footerShowsAge;
+  FooterStatus footerStatus;
+  Box header;  // FONT_XS period title when w > 0
 };
 
-// Geometry follows the SOO-618 mock-ups at 1:1 scale.
+// Geometry follows the SOO-618 and SOO-655 mock-ups at 1:1 scale.
 const LayoutSpec LAYOUTS[LAYOUT_COUNT] = {
     // A: concentric rings, Claude outside, Fable inside, both filling clockwise from 12 o'clock.
-    {{{120, 120, 110, 6, 0, 360, false}, {120, 120, 93, 6, 0, 360, false}},
+    {{{120, 120, 110, 6, 0, 360, false, {}}, {120, 120, 93, 6, 0, 360, false, {}}},
      80,
      {45, 128, 150},
-     true,
+     Labels::Inline,
      {{64, 58, 112}, {64, 152, 112}},
      {},
      {66, 169, 108},
-     false},
+     FooterStatus::None,
+     {}},
     // B: clock on top, two 270-degree gauges below, open at the bottom.
-    {{{62, 162, 41, 3.5f, 225, 270, false}, {178, 162, 41, 3.5f, 225, 270, false}},
+    {{{62, 162, 41, 3.5f, 225, 270, false, {}}, {178, 162, 41, 3.5f, 225, 270, false, {}}},
      19,
      {45, 70, 150},
-     false,
+     Labels::Stacked,
      {{30, 196, 64}, {146, 196, 64}},
      {{30, 154, 64}, {146, 154, 64}},
      {MARGIN, 221, INNER_W},
-     true},
+     FooterStatus::Age,
+     {}},
     // C: left half ring for Claude, right half ring for Fable, both filling upwards from the bottom.
-    {{{120, 120, 108, 7, 213.69f, 112.62f, false}, {120, 120, 108, 7, 33.69f, 112.62f, true}},
+    {{{120, 120, 108, 7, 213.69f, 112.62f, false, {}}, {120, 120, 108, 7, 33.69f, 112.62f, true, {}}},
      75,
      {45, 125, 150},
-     false,
+     Labels::Stacked,
      {{56, 160, 60}, {124, 160, 60}},
      {{56, 179, 60}, {124, 179, 60}},
      {50, 218, 140},
-     false},
+     FooterStatus::None,
+     {}},
+    // D: usage only, a name and a large number over a full-width bar for Claude, then the same for Fable.
+    {{{0, 0, 0, 0, 0, 0, false, {18, 100, 204, 8}}, {0, 0, 0, 0, 0, 0, false, {18, 190, 204, 8}}},
+     -1,
+     {},
+     Labels::Row,
+     {{18, 53, 76}, {18, 143, 76}},
+     {{100, 46, 122}, {100, 136, 122}},
+     {MARGIN, 218, INNER_W},
+     FooterStatus::AgeAndStale,
+     {MARGIN, 8, INNER_W}},
 };
 
 struct GaugeView {
@@ -96,6 +128,7 @@ char lastDate[40];
 uint16_t lastDateColor;
 char lastFooter[64];
 uint16_t lastFooterColor;
+bool headerDrawn;
 GaugeView lastGauge[GAUGES];
 bool gaugeDrawn[GAUGES];
 
@@ -108,10 +141,17 @@ uint16_t barColor(int8_t pct) {
 void resetCache() {
   lastHm[0] = lastDate[0] = lastFooter[0] = '\0';
   lastDateColor = lastFooterColor = 0;
+  headerDrawn = false;
   for (uint8_t i = 0; i < GAUGES; i++) gaugeDrawn[i] = false;
 }
 
-void drawRing(const GaugeSpec &g, int8_t pct) {
+void drawTrack(const GaugeSpec &g, int8_t pct) {
+  if (g.bar.w > 0) {
+    const BarSpec &b = g.bar;
+    const int16_t fill = pct > 0 ? static_cast<int16_t>(static_cast<int32_t>(b.w) * pct / 100) : 0;
+    lcd->drawBar(b.x, b.y, b.w, b.h, fill, barColor(pct), TRACK, BG);
+    return;
+  }
   ArcSpan spans[2] = {{g.start, g.sweep, TRACK}, {0, 0, 0}};
   if (pct > 0) {
     const float fill = g.sweep * pct / 100;
@@ -151,6 +191,26 @@ void drawInline(const Box &box, const char *label, const char *pct) {
   }
 }
 
+// Draws a large number with a smaller "%" on the same baseline at the right end of the box, or "--" alone.
+void drawRowValue(const Box &box, int8_t pct, bool signShown) {
+  const int16_t signW = lcd->textWidth(FONT_P, "%");
+  const int16_t signX = box.x + box.w - signW;
+  if (pct < 0) {
+    lcd->drawText(FONT_L, box.x, box.y, box.w, ALIGN_RIGHT, "--", FG, BG);
+    return;
+  }
+  char digits[4];
+  snprintf(digits, sizeof(digits), "%d", pct);
+  lcd->drawText(FONT_L, box.x, box.y, signX - box.x, ALIGN_RIGHT, digits, FG, BG);
+  if (signShown) return;
+  const int16_t signY = box.y + FONT_L.ascent - FONT_P.ascent;
+  const int16_t signBottom = signY + Lcd::lineHeight(FONT_P);
+  const int16_t bottom = box.y + Lcd::lineHeight(FONT_L);
+  lcd->fillRect(signX, box.y, signW, signY - box.y, BG);
+  lcd->drawText(FONT_P, signX, signY, signW, ALIGN_LEFT, "%", DIM, BG);
+  lcd->fillRect(signX, signBottom, signW, bottom - signBottom, BG);
+}
+
 // Drops trailing words until text fits w, so "서버 오류 usage_http_5" becomes "서버 오류" rather than being cut mid-word.
 void fitText(const Font &font, int16_t w, char *text) {
   while (lcd->textWidth(font, text) > w) {
@@ -170,11 +230,17 @@ void drawGauge(const LayoutSpec &spec, uint8_t i, const GaugeView &view) {
   const bool labelChanged = fresh || strcmp(view.label, last.label);
   if (!pctChanged && !labelChanged) return;
 
-  if (pctChanged) drawRing(spec.gauges[i], view.pct);
+  if (pctChanged) drawTrack(spec.gauges[i], view.pct);
   char pct[8];
   pctText(view.pct, pct, sizeof(pct));
-  if (spec.inlineLabels) {
+  if (spec.labels == Labels::Inline) {
     drawInline(spec.label[i], view.label, pct);
+  } else if (spec.labels == Labels::Row) {
+    if (labelChanged) {
+      const Box &b = spec.label[i];
+      lcd->drawText(FONT_M, b.x, b.y, b.w, ALIGN_LEFT, view.label, DIM, BG);
+    }
+    if (pctChanged) drawRowValue(spec.pct[i], view.pct, !fresh && last.pct >= 0);
   } else {
     if (labelChanged) {
       const Box &b = spec.label[i];
@@ -203,26 +269,35 @@ Msg warningText(TokenWarning warning) {
   return warning == TokenWarning::NoCertCheck ? Msg::NoCertCheck : Msg::TokenPlaintext;
 }
 
-// One status line at the bottom. Warnings win over the reset time, which wins over the data age.
+// One status line at the bottom: time sync on clockless designs, then warnings, the reset time, the data age.
 uint16_t footerText(const LayoutSpec &spec, bool timeValid, bool wifiUp, TokenWarning warning,
                     const UsageState &state, bool configured, char *out, size_t n) {
   char header[40];
   const bool usageWarn = usage::headerText(state, configured, millis(), lang, header, sizeof(header));
+  if (!timeValid && spec.timeY < 0) {
+    i18n::copy(lang, wifiUp ? Msg::WaitingForTime : Msg::ConnectingWifi, out, n);
+    return WARN;
+  }
   if (timeValid && !wifiUp) {
     i18n::copy(lang, Msg::WifiLost, out, n);
     return WARN;
   }
+  const char *resets = "";
+  for (uint8_t i = 0; state.haveData && i < state.count && !resets[0]; i++) resets = state.items[i].resets;
   if (usageWarn) {
-    strlcpy(out, header, n);
+    if (resets[0] && spec.footerStatus == FooterStatus::AgeAndStale && state.relayStatus == RelayStatus::Stale) {
+      snprintf_P(out, n, i18n::text(lang, Msg::ResetsAndStatus), resets, header);
+    } else {
+      strlcpy(out, header, n);
+    }
     return WARN;
   }
   if (warning != TokenWarning::None) {
     i18n::copy(lang, warningText(warning), out, n);
     return WARN;
   }
-  const char *resets = "";
-  for (uint8_t i = 0; state.haveData && i < state.count && !resets[0]; i++) resets = state.items[i].resets;
-  if (resets[0] && spec.footerShowsAge) snprintf_P(out, n, i18n::text(lang, Msg::ResetsAndStatus), resets, header);
+  const bool withAge = spec.footerStatus != FooterStatus::None;
+  if (resets[0] && withAge) snprintf_P(out, n, i18n::text(lang, Msg::ResetsAndStatus), resets, header);
   else if (resets[0]) snprintf_P(out, n, i18n::text(lang, Msg::Resets), resets);
   else strlcpy(out, header, n);
   return FOOT;
@@ -240,6 +315,31 @@ void formatDate(const struct tm &t, char *out, size_t n) {
     memcpy_P(wday, WEEKDAYS_KO + 3 * w, 3);
     wday[3] = '\0';
     snprintf_P(out, n, PSTR("%d월 %d일 %s요일"), t.tm_mon + 1, t.tm_mday, wday);
+  }
+}
+
+void drawClock(const LayoutSpec &spec, bool timeValid, bool wifiUp) {
+  char hm[8], date[40];
+  uint16_t dateColor = DIM;
+  if (timeValid) {
+    time_t now = time(nullptr);
+    struct tm t;
+    localtime_r(&now, &t);
+    snprintf(hm, sizeof(hm), "%02d:%02d", t.tm_hour, t.tm_min);
+    formatDate(t, date, sizeof(date));
+  } else {
+    strlcpy(hm, "--:--", sizeof(hm));
+    i18n::copy(lang, wifiUp ? Msg::SyncingTime : Msg::ConnectingWifi, date, sizeof(date));
+    dateColor = WARN;
+  }
+  if (strcmp(hm, lastHm)) {
+    strlcpy(lastHm, hm, sizeof(lastHm));
+    lcd->drawText(FONT_L, (Lcd::W - timeW) / 2, spec.timeY, timeW, ALIGN_CENTER, hm, timeValid ? FG : DIM, BG);
+  }
+  if (strcmp(date, lastDate) || dateColor != lastDateColor) {
+    strlcpy(lastDate, date, sizeof(lastDate));
+    lastDateColor = dateColor;
+    lcd->drawText(FONT_S, spec.date.x, spec.date.y, spec.date.w, ALIGN_CENTER, date, dateColor, BG);
   }
 }
 
@@ -311,28 +411,13 @@ void draw(bool timeValid, bool wifiUp, TokenWarning warning, const UsageState &s
   if (dirty) invalidate();
   const LayoutSpec &spec = LAYOUTS[static_cast<uint8_t>(current)];
 
-  char hm[8], date[40];
-  uint16_t dateColor = DIM;
-  if (timeValid) {
-    time_t now = time(nullptr);
-    struct tm t;
-    localtime_r(&now, &t);
-    snprintf(hm, sizeof(hm), "%02d:%02d", t.tm_hour, t.tm_min);
-    formatDate(t, date, sizeof(date));
-  } else {
-    strlcpy(hm, "--:--", sizeof(hm));
-    i18n::copy(lang, wifiUp ? Msg::SyncingTime : Msg::ConnectingWifi, date, sizeof(date));
-    dateColor = WARN;
+  if (spec.header.w > 0 && !headerDrawn) {
+    char title[32];
+    i18n::copy(lang, Msg::Last7Days, title, sizeof(title));
+    lcd->drawText(FONT_XS, spec.header.x, spec.header.y, spec.header.w, ALIGN_CENTER, title, DIM, BG);
+    headerDrawn = true;
   }
-  if (strcmp(hm, lastHm)) {
-    strlcpy(lastHm, hm, sizeof(lastHm));
-    lcd->drawText(FONT_L, (Lcd::W - timeW) / 2, spec.timeY, timeW, ALIGN_CENTER, hm, timeValid ? FG : DIM, BG);
-  }
-  if (strcmp(date, lastDate) || dateColor != lastDateColor) {
-    strlcpy(lastDate, date, sizeof(lastDate));
-    lastDateColor = dateColor;
-    lcd->drawText(FONT_S, spec.date.x, spec.date.y, spec.date.w, ALIGN_CENTER, date, dateColor, BG);
-  }
+  if (spec.timeY >= 0) drawClock(spec, timeValid, wifiUp);
 
   for (uint8_t i = 0; i < GAUGES; i++) {
     GaugeView view;

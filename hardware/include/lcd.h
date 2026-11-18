@@ -46,6 +46,8 @@ class Lcd {
                 uint16_t bg);
   // Draws a round-capped ring stroke from spans, writing only the pixels the ring covers.
   void drawRing(float cx, float cy, float rMid, float halfW, const ArcSpan *spans, uint8_t n, uint16_t bg);
+  // Draws a round-ended w x h track with its first fillW pixels in fill, repainting the whole box.
+  void drawBar(int16_t x, int16_t y, int16_t w, int16_t h, int16_t fillW, uint16_t fill, uint16_t track, uint16_t bg);
 
  private:
   LcdPins p_{};

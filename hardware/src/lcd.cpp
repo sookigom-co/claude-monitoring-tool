@@ -42,6 +42,15 @@ float clockDegrees(float dx, float dy) {
   return deg < 0 ? deg + 360 : deg;
 }
 
+// Antialiased coverage of the pixel centred at (px, py) by a horizontal capsule from x0 to x1 around cy.
+float capsuleCoverage(float px, float py, float x0, float x1, float cy, float r) {
+  float dx = 0;
+  if (px < x0 + r) dx = x0 + r - px;
+  else if (px > x1 - r) dx = px - (x1 - r);
+  const float dy = py - cy;
+  return clamp01(r + 0.5f - sqrtf(dx * dx + dy * dy));
+}
+
 struct SpanShape {
   float start;
   float sweep;
@@ -388,4 +397,36 @@ void Lcd::drawRing(float cx, float cy, float rMid, float halfW, const ArcSpan *s
       if (x >= holeA && x < holeB) x = holeB;
     }
   }
+}
+
+void Lcd::drawBar(int16_t x, int16_t y, int16_t w, int16_t h, int16_t fillW, uint16_t fill, uint16_t track,
+                  uint16_t bg) {
+  if (x < 0 || y < 0 || w <= 0 || h <= 0 || x + w > W || y + h > H) return;
+  if (fillW > w) fillW = w;
+  const float r = h / 2.0f, cy = y + r;
+  // A fill shorter than the bar height keeps the track's rounded start and ends in a straight edge.
+  const bool roundFill = fillW >= h;
+  uint8_t line[W * 2];
+  setWindow(x, y, w, h);
+  startWrite();
+  digitalWrite(p_.dc, LOW);
+  writeByte(0x2C);
+  digitalWrite(p_.dc, HIGH);
+  for (int16_t row = 0; row < h; row++) {
+    const float py = y + row + 0.5f;
+    for (int16_t i = 0; i < w; i++) {
+      const float px = x + i + 0.5f;
+      const float trackCov = capsuleCoverage(px, py, x, x + w, cy, r);
+      uint16_t color = blend255(bg, track, static_cast<uint32_t>(trackCov * 255 + 0.5f));
+      if (fillW > 0) {
+        float fillCov = roundFill ? capsuleCoverage(px, py, x, x + fillW, cy, r) : clamp01(x + fillW - px + 0.5f);
+        if (fillCov > trackCov) fillCov = trackCov;
+        color = blend255(color, fill, static_cast<uint32_t>(fillCov * 255 + 0.5f));
+      }
+      line[2 * i] = color >> 8;
+      line[2 * i + 1] = color & 0xFF;
+    }
+    writeBytes(line, w * 2);
+  }
+  endWrite();
 }

@@ -99,7 +99,7 @@ extern "C" time_t __wrap_time(time_t *out) {
   return nowEpoch;
 }
 
-// Marks pixels written by the ring renderer (-Wl,--wrap on Lcd::drawRing).
+// Marks pixels written by the ring and bar renderers (-Wl,--wrap on Lcd::drawRing and Lcd::drawBar).
 extern "C" void __real__ZN3Lcd8drawRingEffffPK7ArcSpanht(Lcd *, float, float, float, float, const ArcSpan *, uint8_t,
                                                            uint16_t);
 extern "C" void __wrap__ZN3Lcd8drawRingEffffPK7ArcSpanht(Lcd *self, float cx, float cy, float r, float hw,
@@ -109,10 +109,35 @@ extern "C" void __wrap__ZN3Lcd8drawRingEffffPK7ArcSpanht(Lcd *self, float cx, fl
   inRing = false;
 }
 
+extern "C" void __real__ZN3Lcd7drawBarEsssssttt(Lcd *, int16_t, int16_t, int16_t, int16_t, int16_t, uint16_t, uint16_t,
+                                                 uint16_t);
+extern "C" void __wrap__ZN3Lcd7drawBarEsssssttt(Lcd *self, int16_t x, int16_t y, int16_t w, int16_t h, int16_t fill,
+                                                 uint16_t fc, uint16_t tc, uint16_t bg) {
+  inRing = true;
+  __real__ZN3Lcd7drawBarEsssssttt(self, x, y, w, h, fill, fc, tc, bg);
+  inRing = false;
+}
+
+int textOverflow = 0;
+
+// Counts text that is wider than its box and so would be clipped (-Wl,--wrap on Lcd::drawText).
+extern "C" void __real__ZN3Lcd8drawTextERK4Fontsss5AlignPKctt(Lcd *, const Font &, int16_t, int16_t, int16_t, Align,
+                                                         const char *, uint16_t, uint16_t);
+extern "C" void __wrap__ZN3Lcd8drawTextERK4Fontsss5AlignPKctt(Lcd *self, const Font &font, int16_t x, int16_t y, int16_t w,
+                                                         Align align, const char *text, uint16_t fg, uint16_t bg) {
+  const int16_t tw = self->textWidth(font, text);
+  if (tw > w) {
+    textOverflow += tw - w;
+    std::printf("    overflow %dpx: \"%s\" in a %dpx box\n", tw - w, text, w);
+  }
+  __real__ZN3Lcd8drawTextERK4Fontsss5AlignPKctt(self, font, x, y, w, align, text, fg, bg);
+}
+
 namespace {
 
 Lcd lcd;
-const char *const LAYOUT_NAMES[] = {"A", "B", "C"};
+const char *const LAYOUT_NAMES[] = {"A", "B", "C", "D"};
+static_assert(sizeof(LAYOUT_NAMES) / sizeof(LAYOUT_NAMES[0]) == LAYOUT_COUNT, "one name per layout");
 const Lang LANGS[] = {Lang::En, Lang::Ko};
 
 void clearMasks() {
@@ -205,7 +230,7 @@ std::vector<Scenario> scenarios() {
 }
 
 void renderAll(const std::string &dir) {
-  std::puts("render: 2 languages x 3 layouts x 10 states");
+  std::printf("render: 2 languages x %d layouts x %zu states\n", LAYOUT_COUNT, scenarios().size());
   for (Lang lang : LANGS) {
     ui::setLang(lang);
     for (uint8_t l = 0; l < LAYOUT_COUNT; l++) {
@@ -213,14 +238,50 @@ void renderAll(const std::string &dir) {
         ui::setLayout(static_cast<Layout>(l));
         ui::invalidate();
         clearMasks();
+        textOverflow = 0;
         ui::draw(sc.timeValid, sc.wifiUp, sc.warning, sc.state, true);
         const int overlap = overlapCount();
         const std::string name = std::string(settings::langName(lang)) + "-" + LAYOUT_NAMES[l] + "-" + sc.name;
-        std::printf("  %-20s overlap %d px\n", name.c_str(), overlap);
+        std::printf("  %-20s overlap %d px, overflow %d px\n", name.c_str(), overlap, textOverflow);
         check(overlap == 0, "text and ring pixels overlap");
+        check(textOverflow == 0, "text wider than its box");
         check(writePpm(dir + "/" + name + ".ppm"), "write ppm");
       }
     }
+  }
+}
+
+// Design D with the values of the SOO-655 mock-up sheet, for a side-by-side comparison.
+void renderMockup(const std::string &dir) {
+  std::puts("render: design D with the mock-up values");
+  UsageState failed;
+  failed.lastAttemptMs = nowMs - 60000;
+  const struct {
+    const char *name;
+    Lang lang;
+    bool wifiUp;
+    UsageState state;
+  } shots[] = {
+      {"normal", Lang::Ko, true, fromRelay(relayJson(42, 76, "ok", nullptr))},
+      {"low", Lang::Ko, true, fromRelay(relayJson(15, 55, "ok", nullptr))},
+      {"pct90", Lang::Ko, true, fromRelay(relayJson(93, 97, "ok", nullptr))},
+      {"nodata", Lang::Ko, true, failed},
+      {"relay-stale", Lang::Ko, true, fromRelay(relayJson(42, 76, "stale", "refresh_failed"))},
+      {"relay-error", Lang::Ko, true, fromRelay(relayJson(42, 76, "error", "usage_http_5"))},
+      {"wifi-lost", Lang::Ko, false, fromRelay(relayJson(100, 0, "ok", nullptr))},
+      {"english", Lang::En, true, fromRelay(relayJson(42, 76, "ok", nullptr))},
+  };
+  ui::setLayout(Layout::D);
+  for (const auto &shot : shots) {
+    ui::setLang(shot.lang);
+    ui::invalidate();
+    clearMasks();
+    textOverflow = 0;
+    ui::draw(true, shot.wifiUp, TokenWarning::None, shot.state, true);
+    std::printf("  mock-D-%-12s overlap %d px, overflow %d px\n", shot.name, overlapCount(), textOverflow);
+    check(overlapCount() == 0, "text and bar pixels overlap");
+    check(textOverflow == 0, "text wider than its box");
+    check(writePpm(dir + "/mock-D-" + shot.name + ".ppm"), "write ppm");
   }
 }
 
@@ -268,15 +329,40 @@ void partialRedraw() {
     UsageState changed = fromRelay(relayJson(47, 55, "ok", nullptr));
     const unsigned long usageChange = frame(changed);
     const unsigned long same = frame(changed);
-    std::printf("  %s: first %lu, 590 idle frames %lu, minute change %lu (time box %d), Claude 42->47 %lu, repeat %lu, overlap %d\n",
-                LAYOUT_NAMES[l], first, idle, minute, timeBox, usageChange, same, overlapCount());
+    const unsigned long minuteBox = layout == Layout::D ? 0 : timeBox;
+    std::printf("  %s: first %lu, 590 idle frames %lu, minute change %lu (time box %lu), Claude 42->47 %lu, repeat %lu, overlap %d\n",
+                LAYOUT_NAMES[l], first, idle, minute, minuteBox, usageChange, same, overlapCount());
     check(first >= 57600, "first frame paints the whole screen");
     check(idle == 0, "nothing is sent while the minute does not change");
-    check(minute == static_cast<unsigned long>(timeBox), "a minute change repaints only the time box");
+    check(minute == minuteBox, "a minute change repaints only the time box, or nothing without a clock");
     check(usageChange > 0 && usageChange < 57600 / 2, "a usage change repaints only part of the screen");
+    if (layout == Layout::D) {
+      // Only the Claude digits box and its bar: the "%", the name and the footer stay as they are.
+      const unsigned long digitsBox = (122 - lcd.textWidth(FONT_P, "%")) * Lcd::lineHeight(FONT_L);
+      check(usageChange == digitsBox + 204 * 8, "D repaints only the changed number and bar");
+    }
     check(same == 0, "an unchanged frame sends nothing");
     check(overlapCount() == 0, "updates never touch the other element's pixels");
   }
+}
+
+// Partial redraws through 42 -> -- -> 100 -> 7 must end on exactly the pixels of a fresh frame.
+void rowTransitions() {
+  std::puts("D value changes: partial redraws match a fresh frame");
+  ui::setLayout(Layout::D);
+  ui::invalidate();
+  UsageState failed;
+  failed.lastAttemptMs = nowMs - 60000;
+  const UsageState steps[] = {fromRelay(relayJson(42, 55, "ok", nullptr)), failed,
+                              fromRelay(relayJson(100, 0, "ok", nullptr)), fromRelay(relayJson(7, 100, "ok", nullptr))};
+  for (const UsageState &st : steps) frame(st);
+  std::vector<uint16_t> partial(fb, fb + W * H);
+  ui::invalidate();
+  frame(steps[3]);
+  int diff = 0;
+  for (int i = 0; i < W * H; i++) diff += partial[i] != fb[i];
+  std::printf("  pixels differing from a fresh frame: %d\n", diff);
+  check(diff == 0, "partial redraws leave no stale pixels");
 }
 
 void layoutSwitch() {
@@ -323,9 +409,10 @@ void cycle() {
   check(c.active(s, 1000) == Layout::B, "cycle starts at the chosen design");
   check(c.active(s, 15999) == Layout::B, "no switch before the interval");
   check(c.active(s, 16000) == Layout::C, "switch after 15 s");
-  check(c.active(s, 31000) == Layout::A, "wraps C -> A");
-  check(c.active(s, 46000) == Layout::B, "back to B after three intervals");
-  check(c.active(s, 46000 + 45000 * 3) == Layout::B, "skipped intervals are counted");
+  check(c.active(s, 31000) == Layout::D, "C -> D");
+  check(c.active(s, 46000) == Layout::A, "wraps D -> A");
+  check(c.active(s, 61000) == Layout::B, "back to B after four intervals");
+  check(c.active(s, 61000 + 60000 * 3) == Layout::B, "skipped intervals are counted");
   const uint32_t nearWrap = 0xFFFFF000UL;  // 4.1 s before millis() wraps to 0
   c.restart(nearWrap);
   check(c.active(s, static_cast<uint32_t>(nearWrap + 14000u)) == Layout::B, "no switch across the wrap before 15 s");
@@ -348,9 +435,11 @@ int main(int argc, char **argv) {
   lcd.begin(pins);
   ui::begin(lcd);
   renderAll(argv[1]);
+  renderMockup(argv[1]);
   renderSetup(argv[1]);
   ui::setLang(Lang::Ko);
   partialRedraw();
+  rowTransitions();
   layoutSwitch();
   langSwitch();
   cycle();

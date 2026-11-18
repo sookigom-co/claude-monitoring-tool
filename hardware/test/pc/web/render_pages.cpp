@@ -89,6 +89,22 @@ void pages(const std::string &dir) {
   check(page.find("cafe &lt;guest&gt;") == std::string::npos, "message page carries no network list");
 }
 
+void layoutOptions(const std::string &dir) {
+  std::puts("layout options: A-D listed, the saved design selected");
+  Settings s;
+  s.layout = Layout::D;
+  UsageState u;
+  const web::DeviceStatus dev{"home-2.4G", -52, "192.168.0.31", 1794720420, 31544, 0};
+  for (Lang lang : {Lang::En, Lang::Ko}) {
+    render(dir, "admin-layout-d", lang, [&](Html &out) { web::adminPage(out, s, u, dev, "T"); });
+    for (const char *opt : {"<option value=A>", "<option value=B>", "<option value=C>"}) {
+      check(page.find(opt) != std::string::npos, std::string("unselected ") + opt);
+    }
+    check(page.find(std::string("<option value=D selected>") + web::text(lang, Txt::LayoutD)) != std::string::npos,
+          "D is listed and selected");
+  }
+}
+
 void escaping(const std::string &dir) {
   std::puts("escaping: settings and network names are HTML-escaped");
   Settings s;
@@ -113,6 +129,7 @@ int main(int argc, char **argv) {
   tzset();
   textTable();
   pages(argv[1]);
+  layoutOptions(argv[1]);
   escaping(argv[1]);
   std::printf("%d failures\n", failures);
   return failures ? 1 : 0;

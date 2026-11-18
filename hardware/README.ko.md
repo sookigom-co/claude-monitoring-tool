@@ -1,12 +1,12 @@
 [English](README.md) | **한국어**
 
-# SmartClock 펌웨어 (hardware) — 0.3.0
+# SmartClock 펌웨어 (hardware) — 0.4.0
 
 SD Pro 스마트 클락(ESP-12F / ESP8266, 4MB flash, ST7789 240×240 LCD)에 올리는 자체 펌웨어입니다. 처음부터 새로 작성했고 순정 펌웨어의 코드·폰트·이미지는 쓰지 않습니다.
 
-- 화면: 시각(`HH:MM`)·날짜(한국어 `11월 15일 일요일`, 영어 `Sun, Nov 15`)와 Claude·Fable 주간 사용률 원형 게이지 2개 (NTP, 기본 시간대 `KST-9`)
+- 화면: 시각(`HH:MM`)·날짜(한국어 `11월 15일 일요일`, 영어 `Sun, Nov 15`)와 Claude·Fable 주간 사용률 원형 게이지 2개 (NTP, 기본 시간대 `KST-9`). 디자인 D 는 시각·날짜 없이 사용량만 표시
 - 표시 언어: 영어·한국어 중 선택(기본 한국어). 설정 웹페이지와 시계 화면에 함께 적용되고, 설정 항목마다 짧은 설명이 붙습니다(8.3절)
-- 화면 디자인 3종(A 동심원 링 / B 위 시계 + 아래 게이지 / C 좌우 반원 링, 기본 C). 하나로 고정하거나 자동 순환합니다(8.2절)
+- 화면 디자인 4종(A 동심원 링 / B 위 시계 + 아래 게이지 / C 좌우 반원 링 / D 사용량 전용 큰 숫자 + 가로 막대, 기본 C). 하나로 고정하거나 자동 순환합니다(8.2절)
 - 사용량: 중계 서버 `server/` 가 주는 JSON 을 받아 그림
 - 무선 업데이트(OTA): 웹 업로드 `/update`(Digest 인증 + CSRF 토큰) + ArduinoOTA(비밀번호 필수)
 - 설정 웹페이지: 언어, 사용량 URL·토큰, HTTPS 인증서 검증 방식, 시간대, 밝기, 화면 디자인, 관리자 비밀번호, Wi-Fi 재설정, 공장 초기화
@@ -16,26 +16,27 @@ SD Pro 스마트 클락(ESP-12F / ESP8266, 4MB flash, ST7789 240×240 LCD)에 �
 
 ## 0. 버전
 
-> **CAUTION** — 0.1.1 은 서로 다른 두 빌드가 같은 버전 문자열을 씁니다. 0.1.2 에는 LCD 정렬 수정이 빠져 있어 **실기기에서 부팅 직후 `Exception (9)` 로 재시작을 반복합니다**(0.1.0 실기기 로그로 확인, 0.1.2 는 같은 코드). 0.1.2 는 쓰지 말고 0.3.0(또는 0.1.3)을 쓰십시오. 0.2.0 에서 0.3.0 으로 올리는 절차는 9.3절, 0.1.3 · 0.1.1(LCD 수정판)에서 올리는 절차는 9.4절에 있습니다.
+> **CAUTION** — 0.1.1 은 서로 다른 두 빌드가 같은 버전 문자열을 씁니다. 0.1.2 에는 LCD 정렬 수정이 빠져 있어 **실기기에서 부팅 직후 `Exception (9)` 로 재시작을 반복합니다**(0.1.0 실기기 로그로 확인, 0.1.2 는 같은 코드). 0.1.2 는 쓰지 말고 0.4.0(또는 0.1.3)을 쓰십시오. 0.3.0 · 0.2.0 에서 0.4.0 으로 올리는 절차는 9.3절, 0.1.3 · 0.1.1(LCD 수정판)에서 올리는 절차는 9.4절에 있습니다.
 
-> **NOTE** — 0.2.0 과 0.3.0 은 실기기 확인 전입니다. 1장 표의 `UNVERIFIED`(미확인) 항목은 시계에 올린 뒤 확인합니다.
+> **NOTE** — 0.4.0 은 실기기 확인 전입니다. 0.3.0 은 디자인 B·C 한국어 화면만 실기기로 확인했습니다. 1장 표의 `UNVERIFIED`(미확인) 항목은 시계에 올린 뒤 확인합니다.
 
 ## 1. 검증 상태
 
 | 항목 | 상태 |
 |---|---|
-| `pio run -e smartclock` 빌드 (0.3.0) | `CONFIRMED` — RAM 41.1% (33,680 B), Flash 60.3% (629,651 B), `firmware.bin` 633,808 B. 0.2.0 대비 RAM −816 B, `firmware.bin` +10,832 B |
-| `pio run -e lcd-diag` 빌드 (0.3.0) | `CONFIRMED` — RAM 35.0% (28,640 B), Flash 31.4% (327,835 B), `firmware.bin` 331,984 B (0.2.0 과 같음) |
-| PC 시험 (`test/pc/run.sh`) | `CONFIRMED` — 15개 묶음 294개 검사 통과. JSON 해석, 두 언어의 상태 문구, 두 언어의 화면 배치 폭, 설정 저장·이전(디자인·언어 키), 검증 방식·토큰 경고 판정 |
-| 화면 3종 렌더링·부분 갱신 (`test/pc/sim/run.sh`) | `CONFIRMED`(PC) — 실제 `lcd.cpp`·`ui.cpp` 가 보내는 SPI 바이트를 가짜 ST7789 로 받아 그림. 2개 언어 × 3종 × 10상태 = 60장 + 설정 모드·메시지 화면 6장에서 글자 상자와 링 픽셀 겹침 0. 같은 분 안 590프레임 전송 0 px, 분 변경 시 시각 상자 6,450 px 만, 디자인·언어 전환 시 1회 전체 |
+| `pio run -e smartclock` 빌드 (0.4.0) | `CONFIRMED` — RAM 41.4% (33,880 B), Flash 60.5% (631,675 B), `firmware.bin` 635,824 B. 0.3.0 대비 RAM +200 B, `firmware.bin` +2,016 B |
+| `pio run -e lcd-diag` 빌드 (0.4.0) | `CONFIRMED` — RAM 35.0% (28,640 B), Flash 31.4% (327,835 B), `firmware.bin` 331,984 B (0.3.0 과 크기 같음) |
+| PC 시험 (`test/pc/run.sh`) | `CONFIRMED` — 17개 묶음 353개 검사 통과. JSON 해석, 두 언어의 상태 문구, 두 언어의 화면 배치 폭(디자인 D 바닥글 전부가 224 px 칸에 들어감 포함), 설정 저장·이전(디자인·언어 키), 검증 방식·토큰 경고 판정 |
+| 화면 4종 렌더링·부분 갱신 (`test/pc/sim/run.sh`) | `CONFIRMED`(PC) — 실제 `lcd.cpp`·`ui.cpp` 가 보내는 SPI 바이트를 가짜 ST7789 로 받아 그림. 2개 언어 × 4종 × 10상태 = 80장 + 시안 값으로 그린 디자인 D 8장 + 설정 모드·메시지 화면 6장에서 글자 상자와 링·막대 픽셀 겹침 0, 칸보다 넓은 글자 0 px. 같은 분 안 590프레임 전송 0 px, 분 변경 시 시각 상자 6,450 px 만(A~C) 또는 0 px(D), 디자인 D 값 변경 시 그 숫자와 막대만(5,975 px), 디자인·언어 전환 시 1회 전체 |
 | 웹페이지 (`test/pc/web/run.sh`) | `CONFIRMED`(PC) — 실제 `web_pages.cpp` 로 관리 페이지·설정 포털·업데이트 페이지·안내 페이지를 두 언어로 HTML 파일에 씀. 모든 문구가 두 언어에 있음, 입력값 HTML 이스케이프, 가장 큰 조각 1.1 KB 미만 |
-| 자동 순환 타이밍 (`include/layout_cycle.h`) | `CONFIRMED`(PC) — 순서 A→B→C, 간격, 저장 시 처음부터, `millis()` 32비트 넘김 |
-| 설정 이전 (0.1.x · 0.2.0 → 0.3.0) | `CONFIRMED`(PC) — 0.2.0 형식 `settings.json` 을 0.3.0 이 읽으면 기존 값 유지 + 언어 한국어(`ko`). `lang` 이 없거나 잘못된 값이어도 한국어. 0.1.x 파일은 디자인 기본값(`C`·`fixed`·15초)도 붙음 |
+| 자동 순환 타이밍 (`include/layout_cycle.h`) | `CONFIRMED`(PC) — 순서 A→B→C→D, 간격, 저장 시 처음부터, `millis()` 32비트 넘김 |
+| 설정 이전 (0.1.x · 0.2.0 · 0.3.0 → 0.4.0) | `CONFIRMED`(PC) — 0.3.0 형식 `settings.json`(디자인 `A`/`B`/`C`)은 그대로 읽힘. 0.2.0 파일은 기존 값 유지 + 언어 한국어(`ko`). `lang` 이 없거나 잘못된 값이면 한국어, `layout` 이 잘못된 값이면 `C`. 0.1.x 파일은 디자인 기본값(`C`·`fixed`·15초)도 붙음 |
 | LCD 핀 기본값 (3장) | `CONFIRMED` — 2026-11-14 보드 실기기(LCD 수정판 0.1.1)에서 화면 표시 |
 | 시리얼 기록 절차 (CP2102, macOS) | `CONFIRMED` — 2026-11-14 보드가 같은 절차로 기록 |
 | 내장 루트 인증서 | `CONFIRMED` — `tools/gen_ca_roots.py` 가 SHA-256 지문을 고정값과 대조. ISRG Root X1 `96bcec06…bddf08c6`, X2 `69729b8e…3ccb1470` |
 | 0.3.0 실기기 화면, 디자인 B·C 한국어 | `CONFIRMED` — 8.2절 사진 (2026-11-16) |
 | 0.2.0·0.3.0 실기기 화면: 디자인 A, 영어 문구, 원호 그리기 시간 | `UNVERIFIED` — 실기기 필요. 디자인 전환 1회에 링 픽셀 약 2만~3만 개를 부동소수점으로 계산합니다 |
+| 0.4.0 실기기 화면: 디자인 D (배치, 막대 그리기, 색) | `UNVERIFIED` — 실기기 필요. PC 에서 SOO-655 시안과만 대조했습니다(8.2절) |
 | 실기기에서 웹페이지 조각 전송 | `UNVERIFIED` — 실기기 필요. PC 에서만 확인했습니다(8.3절) |
 | Wi-Fi 설정 포털, NTP, 사용량 조회, OTA 2종 | `UNVERIFIED` — 실기기 확인 결과가 아직 없습니다 |
 | CA 검증으로 실제 Let's Encrypt 서버(nginx) 접속 | `UNVERIFIED` — 실제 도메인 필요 |
@@ -46,20 +47,20 @@ SD Pro 스마트 클락(ESP-12F / ESP8266, 4MB flash, ST7789 240×240 LCD)에 �
 | 하려는 일 | 읽을 곳 |
 |---|---|
 | 순정 시계에 처음 기록 | 4장 → 5장 → 6장 → 7장 |
-| 0.2.0 시계를 0.3.0 으로 | 9.3절 |
-| 0.1.3 · 0.1.1 시계를 0.3.0 으로 | 9.4절 |
+| 0.3.0 · 0.2.0 시계를 0.4.0 으로 | 9.3절 |
+| 0.1.3 · 0.1.1 시계를 0.4.0 으로 | 9.4절 |
 | 화면 디자인 바꾸기·자동 순환 | 8.2절 |
 | 언어를 영어·한국어로 바꾸기 | 8.3절 |
 | 사용량 표시 연결 | `server/README.ko.md` 6장(시계 설정) |
 | 화면이 안 나옴 | 3.1절 |
 | 소스에서 직접 빌드 | 2.1절 |
 
-빌드된 파일은 GitHub Releases 의 `hardware-v0.3.0` 에 있습니다. 이전 판은 `hardware-v0.2.0`·`hardware-v0.1.3` 에 남아 있습니다.
+빌드된 파일은 GitHub Releases 의 `hardware-v0.4.0` 에 있습니다. 이전 판은 `hardware-v0.3.0`·`hardware-v0.2.0`·`hardware-v0.1.3` 에 남아 있습니다.
 
 | 파일 | 용도 |
 |---|---|
-| `smartclock-0.3.0-firmware.bin` | 본 펌웨어 |
-| `lcd-diag-0.3.0-firmware.bin` | 화면 핀 진단 (Wi-Fi 없음) |
+| `smartclock-0.4.0-firmware.bin` | 본 펌웨어 |
+| `lcd-diag-0.4.0-firmware.bin` | 화면 핀 진단 (Wi-Fi 없음) |
 | `SHA256SUMS` | 파일 확인용 |
 
 ```bash
@@ -74,7 +75,7 @@ python3 -m pip install platformio "esptool>=5"
 pio run -e smartclock             # → .pio/build/smartclock/firmware.bin
 pio run -e lcd-diag               # → .pio/build/lcd-diag/firmware.bin
 test/pc/run.sh                    # PC 시험. g++ 필요. smartclock 을 한 번 빌드한 뒤 실행
-test/pc/sim/run.sh out/           # 화면 3종 × 두 언어 PC 렌더 + 부분 갱신 검사 → out/*.ppm
+test/pc/sim/run.sh out/           # 화면 4종 × 두 언어 PC 렌더 + 부분 갱신 검사 → out/*.ppm
 python3 test/pc/sim/make_sheet.py out/ png/   # ppm → png 와 비교표 (Pillow 필요)
 test/pc/web/run.sh web/           # 웹페이지 전체를 두 언어로 PC 렌더 → web/*.html
 python3 tools/gen_fonts.py        # 화면 글자를 바꿀 때만 (결과 src/fonts_gen.cpp 는 이미 들어 있음)
@@ -108,7 +109,7 @@ python3 tools/gen_ca_roots.py     # 루트 인증서를 바꿀 때만 (결과 sr
 
 ### 3.1 화면이 안 나올 때 — 핀 진단 빌드 (`lcd-diag`)
 
-1. `lcd-diag-0.3.0-firmware.bin` 을 6장 절차로 기록합니다.
+1. `lcd-diag-0.4.0-firmware.bin` 을 6장 절차로 기록합니다.
 2. 진단 펌웨어는 핀 후보 16조합 × SPI 모드 2 × 백라이트 극성 2 = **64단계**를 4초씩 돌립니다(한 바퀴 약 4분 16초).
 3. 화면이 보이는 단계의 큰 숫자와 아래 두 줄(`DC0 RST2 CS-1 BL5`, `MODE3 BL-LOW RED`)을 적습니다. 시리얼(115200bps)에도 같은 내용이 찍힙니다.
 4. 배경색이 글자(`RED`/`GREEN`/`BLUE`)와 다르면 `LCD_BGR` 을 반대로 바꿉니다.
@@ -193,7 +194,7 @@ python3 -m serial.tools.miniterm <포트> 115200 --dtr 0 --rts 0
 
 ```bash
 cd hardware
-tools/clean_flash.sh <포트> smartclock-0.3.0-firmware.bin
+tools/clean_flash.sh <포트> smartclock-0.4.0-firmware.bin
 ```
 
 - 칩 확인 → 전체 삭제 → `0x0` 에 기록 → 4MB 읽기 → 검증을 차례로 합니다. 단계마다 "GPIO0 을 GND 에 둔 채 전원을 뺐다 꽂고 Enter" 를 요청합니다.
@@ -206,9 +207,9 @@ tools/clean_flash.sh <포트> smartclock-0.3.0-firmware.bin
 # GPIO0 을 GND 에 붙이고 전원 투입. 각 명령 사이에 전원을 뺐다 꽂습니다(GPIO0 은 계속 GND).
 esptool --chip esp8266 --port <포트> --after no-reset chip-id
 esptool --chip esp8266 --port <포트> --after no-reset erase-flash
-esptool --chip esp8266 --port <포트> --after no-reset write-flash --flash-mode keep --flash-size keep 0x0 smartclock-0.3.0-firmware.bin
+esptool --chip esp8266 --port <포트> --after no-reset write-flash --flash-mode keep --flash-size keep 0x0 smartclock-0.4.0-firmware.bin
 esptool --chip esp8266 --port <포트> --after no-reset read-flash 0x0 0x400000 dump.bin
-python3 tools/verify_flash.py dump.bin smartclock-0.3.0-firmware.bin
+python3 tools/verify_flash.py dump.bin smartclock-0.4.0-firmware.bin
 ```
 
 - LittleFS 이미지는 기록하지 않습니다. 펌웨어가 첫 부팅 때 스스로 만듭니다.
@@ -256,7 +257,7 @@ python3 tools/verify_flash.py dump.bin smartclock-0.3.0-firmware.bin
 | 갱신 간격 (Refresh interval) | 조회 주기(분), 기본 10. 실패하면 2분 간격 재시도 |
 | POSIX 시간대 (POSIX time zone) | 기본 `KST-9`. 예: `UTC0`, `EST5EDT,M3.2.0,M11.1.0` |
 | 밝기 (Brightness) | 0–100 (0 = 백라이트 끔) |
-| 화면 디자인 / 디자인 전환 / 순환 간격 (Screen design / Design change / Cycle interval) | 화면 디자인·자동 순환. 8.2절 |
+| 화면 디자인 / 디자인 전환 / 순환 간격 (Screen design / Design change / Cycle interval) | 화면 디자인·자동 순환(0.2.0, 디자인 D 는 0.4.0). 8.2절 |
 | 관리자 비밀번호 (Admin password) | 8자 이상. 바꾸면 OTA 비밀번호도 함께 바뀝니다 |
 | 재시작 / Wi-Fi 정보 지우기 / 공장 초기화 (Reboot / Forget Wi-Fi / Factory reset) | 재시작 / Wi-Fi 만 삭제 / Wi-Fi + 모든 설정 삭제 |
 
@@ -299,29 +300,37 @@ python3 tools/verify_flash.py dump.bin smartclock-0.3.0-firmware.bin
 
 0.3.0, 한국어 표시로 동작 중인 실기기입니다.
 
+| 디자인 D (한국어) | 디자인 D (영어) |
+|---|---|
+| ![디자인 D 한국어](docs/sim-design-d-ko.png) | ![디자인 D 영어](docs/sim-design-d-en.png) |
+
+0.4.0 디자인 D 를 PC 시뮬레이터(`test/pc/sim`)로 그린 화면입니다(2배 확대). 실기기 사진은 아직 없습니다.
+
 | 항목 | 설정값 (`settings.json` 키) | 기본 | 뜻 |
 |---|---|---|---|
-| 화면 디자인 (Screen design) | `layout` = `A` / `B` / `C` | `C` | A 동심원 링(바깥 Claude, 안쪽 Fable) / B 위 시계 + 아래 270° 게이지 2개 / C 좌우 반원 링(왼쪽 Claude, 오른쪽 Fable) |
-| 디자인 전환 (Design change) | `layout_mode` = `fixed` / `cycle` | `fixed` | `fixed` = 위 디자인 고정. `cycle` = 위 디자인부터 A→B→C 순서로 자동 순환 |
+| 화면 디자인 (Screen design) | `layout` = `A` / `B` / `C` / `D` | `C` | A 동심원 링(바깥 Claude, 안쪽 Fable) / B 위 시계 + 아래 270° 게이지 2개 / C 좌우 반원 링(왼쪽 Claude, 오른쪽 Fable) / D 사용량 전용: 이름·큰 숫자 아래 전체 너비 막대, 위 Claude · 아래 Fable (0.4.0) |
+| 디자인 전환 (Design change) | `layout_mode` = `fixed` / `cycle` | `fixed` | `fixed` = 위 디자인 고정. `cycle` = 위 디자인부터 A→B→C→D 순서로 자동 순환 |
 | 순환 간격 (Cycle interval) | `cycle_sec` = 5–300 | 15 | 자동 순환 간격(초). 범위 밖이면 저장을 거부합니다 |
 
 - 0.1.x 에서 올리면 세 키가 없으므로 기본값(`C`·`fixed`·15초)으로 켜집니다. 파일에 잘못된 값이 있어도 기본값으로 켜집니다.
 - 자동 순환 중에 설정을 저장하면 순환을 위 디자인부터 다시 시작합니다.
 - `/api/status` 에 `layout`·`layout_mode`·`cycle_sec` 가 추가됩니다.
 - 게이지 1 = `items[0]`(Claude), 게이지 2 = `items[1]`(Fable). 3번째 항목은 표시하지 않습니다. 색은 0.1.x 막대와 같습니다(70 미만 초록, 70–89 노랑, 90 이상 빨강). 게이지마다 이름(`label`)과 % 숫자를 씁니다. `pct` 가 `null` 이거나 데이터가 없으면 회색 트랙만 그리고 `--` 를 씁니다.
+- 디자인 D(0.4.0)는 시각·날짜를 그리지 않습니다. 위에서부터 머리글 `최근 7일 사용량`(`Last 7 days`), 왼쪽 Claude 이름과 오른쪽 흰색 큰 숫자 + 작은 회색 `%`, 204 × 8 px 막대(채움 폭 `204 × pct / 100` px, 색은 위와 같음), 같은 구성의 Fable, 맨 아래 줄 순서입니다. 숫자는 항상 흰색이고 색은 막대에만 씁니다. 데이터가 없으면 `%` 없이 `--` 를 쓰고 회색 트랙만 그립니다.
 - 화면 맨 아래 한 줄(B 는 게이지 아래)에 아래 표에서 먼저 맞는 것 하나를 표시합니다. 폭이 모자라면 뒤쪽 단어부터 뺍니다(예: A 에서 `서버 오류 usage_http_5` → `서버 오류`).
 - 표는 한국어 화면 문구이고, 괄호 안은 영어 화면 문구입니다.
 
 | 우선 | 상황 | 표시 | 색 |
 |---|---|---|---|
+| 0 | D 만: 시각이 아직 맞지 않음 | `시각 동기화 대기` (`Waiting for time`), Wi-Fi 연결 전이면 `Wi-Fi 연결 중` (`Connecting Wi-Fi`) | 주황 |
 | 1 | Wi-Fi 끊김(시각은 맞음) | `Wi-Fi 연결 끊김` (`Wi-Fi offline`) | 주황 |
-| 2 | 10장 상태 문구가 경고일 때 | `실패` (`Failed`), `실패 · N분 전` (`Failed · Nm ago`), `지연 · HH:MM 기준` (`Stale · as of HH:MM`), `서버 오류 …` (`Server error …`) | 주황 |
+| 2 | 10장 상태 문구가 경고일 때 | `실패` (`Failed`), `실패 · N분 전` (`Failed · Nm ago`), `지연 · HH:MM 기준` (`Stale · as of HH:MM`), `서버 오류 …` (`Server error …`). D 는 `지연` 일 때 초기화 시각을 앞에 남깁니다: `초기화 11-18 09:00 · 지연 · 14:25 기준` (`Reset 11-18 09:00 · Stale · as of 14:25`) | 주황 |
 | 3 | 토큰 노출 경고 | `인증서 검증 안 함` (`No cert check`) / `토큰 평문 전송` (`Plaintext token`) | 주황 |
-| 4 | `resets` 있음 | A·C `초기화 11-18 09:00` (`Reset 11-18 09:00`), B `초기화 11-18 09:00 · 14:25 기준` (`Reset 11-18 09:00 · as of 14:25`) | 회색 |
+| 4 | `resets` 있음 | A·C `초기화 11-18 09:00` (`Reset 11-18 09:00`), B·D `초기화 11-18 09:00 · 14:25 기준` (`Reset 11-18 09:00 · as of 14:25`) | 회색 |
 | 5 | 그 밖 | 10장 상태 문구(`14:25 기준`, `불러오는 중`, `URL 미설정` 등) | 회색 |
 
-- 시각이 아직 맞지 않으면 시각 자리에 `--:--`, 날짜 자리에 `시간 동기화 중`(`Syncing time`), Wi-Fi 연결 전이면 `Wi-Fi 연결 중`(`Connecting Wi-Fi`)을 주황으로 표시합니다.
-- 화면은 바뀐 부분만 다시 그립니다. 시각은 분이 바뀔 때 시각 상자만, 게이지는 값이 바뀔 때 그 링과 숫자만 다시 그립니다. 전체를 지우는 것은 디자인·언어가 바뀔 때와 메시지 화면에서 돌아올 때뿐입니다.
+- 시각이 아직 맞지 않으면 시각 자리에 `--:--`, 날짜 자리에 `시간 동기화 중`(`Syncing time`), Wi-Fi 연결 전이면 `Wi-Fi 연결 중`(`Connecting Wi-Fi`)을 주황으로 표시합니다. 디자인 D 는 시각·날짜 자리가 없어 맨 아래 줄에 표시합니다(우선 0).
+- 화면은 바뀐 부분만 다시 그립니다. 시각은 분이 바뀔 때 시각 상자만, 게이지는 값이 바뀔 때 그 링과 숫자만 다시 그립니다. 디자인 D 는 분이 바뀌어도 다시 그리지 않고, 값이 바뀌면 그 숫자와 막대만, 맨 아래 줄은 문구가 바뀔 때만 다시 그립니다. 전체를 지우는 것은 디자인·언어가 바뀔 때와 메시지 화면에서 돌아올 때뿐입니다.
 
 ### 8.3 표시 언어 (0.3.0)
 
@@ -341,6 +350,7 @@ python3 tools/verify_flash.py dump.bin smartclock-0.3.0-firmware.bin
 | 위치 | 영어 | 한국어 |
 |---|---|---|
 | 날짜 | `Sun, Nov 15` | `11월 15일 일요일` |
+| 디자인 D 머리글 | `Last 7 days` | `최근 7일 사용량` |
 | 시각 동기화 전 날짜 자리 | `Syncing time` / `Connecting Wi-Fi` | `시간 동기화 중` / `Wi-Fi 연결 중` |
 | 맨 아래 줄 | 8.2절 표 | 8.2절 표 |
 | 데이터 경과 시간 | `5m ago`, `3h ago`, `2d ago` | `5분 전`, `3시간 전`, `2일 전` |
@@ -369,49 +379,50 @@ pio run -e smartclock-ota -t upload --upload-port smartclock-xxxx.local   # 또�
 
 > **CAUTION** — OTA 로 올린 펌웨어가 부팅에 실패하면 복구는 시리얼(6장)로만 됩니다. 핀을 바꾼 빌드는 먼저 시리얼로 시험합니다.
 
-### 9.3 0.2.0 → 0.3.0
+### 9.3 0.3.0 · 0.2.0 → 0.4.0
 
-모든 설정이 그대로 남습니다(Wi-Fi·관리자 비밀번호·URL·토큰·검증 방식·시간대·밝기·화면 디자인). 언어는 한국어로 시작하므로 화면은 이전과 같습니다.
+모든 설정이 그대로 남습니다(Wi-Fi·관리자 비밀번호·URL·토큰·검증 방식·시간대·밝기·화면 디자인·언어). 디자인 D 를 고르기 전까지 화면은 이전과 같습니다. 0.2.0 에서 올린 시계는 언어 설정이 없으므로 한국어로 시작합니다.
 
-1. Releases `hardware-v0.3.0` 에서 `smartclock-0.3.0-firmware.bin` 과 `SHA256SUMS` 를 받아 2장 명령으로 확인합니다. `smartclock-0.3.0-firmware.bin: OK` 가 나와야 합니다.
-2. 시계와 같은 Wi-Fi 에서 `http://<시계 IP>/update` 에 로그인하고 `smartclock-0.3.0-firmware.bin` 을 올립니다. "Update complete" 후 시계가 재시작합니다.
-3. 설정 페이지 맨 위 `펌웨어`(영어 `Firmware`)가 `0.3.0` 인지 확인합니다.
-4. 영어로 쓰려면 `Language / 언어` 묶음에서 `English` 를 고르고 저장합니다. 페이지와 시계 화면이 바로 바뀝니다.
+1. Releases `hardware-v0.4.0` 에서 `smartclock-0.4.0-firmware.bin` 과 `SHA256SUMS` 를 받아 2장 명령으로 확인합니다. `smartclock-0.4.0-firmware.bin: OK` 가 나와야 합니다.
+2. 시계와 같은 Wi-Fi 에서 `http://<시계 IP>/update` 에 로그인하고 `smartclock-0.4.0-firmware.bin` 을 올립니다. "Update complete" 후 시계가 재시작합니다.
+3. 설정 페이지 맨 위 `펌웨어`(영어 `Firmware`)가 `0.4.0` 인지 확인합니다.
+4. 디자인 D 를 쓰려면 `화면`(영어 `Display`) 묶음의 `화면 디자인` 에서 `D` 를 고르고 저장합니다. 자동 순환에 넣으려면 `디자인 전환` 을 순환(`cycle`)으로 둡니다. D 는 C 다음 차례입니다. 화면이 바로 바뀝니다.
 
-#### 되돌리기 (0.3.0 → 0.2.0)
+#### 되돌리기 (0.4.0 → 0.3.0)
 
-1. Releases `hardware-v0.2.0` 의 `smartclock-0.2.0-firmware.bin` 을 같은 `/update` 페이지에 올립니다.
-2. 모든 설정이 그대로 남습니다. 페이지는 영어만, 화면은 한국어만으로 돌아갑니다.
+1. Releases `hardware-v0.3.0` 의 `smartclock-0.3.0-firmware.bin` 을 같은 `/update` 페이지에 올립니다.
+2. 모든 설정이 그대로 남습니다. 디자인 D 를 골라 두었으면 0.3.0 은 D 를 모르므로 디자인 C 로 표시합니다.
 
-- 0.2.0 은 `lang` 을 읽지 않습니다. **0.2.0 에서 설정을 저장하면 이 키가 파일에서 빠집니다.** 그 뒤 다시 0.3.0 을 올리면 언어는 한국어로 돌아갑니다.
+- **D 를 골라 둔 채 0.3.0 에서 설정을 저장하면 그 자리에 `C` 가 저장됩니다.** 그 뒤 다시 0.4.0 을 올리면 D 를 다시 고릅니다. 0.3.0 에서 저장하지 않았으면 디자인 D 가 그대로 살아납니다.
+- 0.2.0 으로 되돌리려면 Releases `hardware-v0.2.0` 의 `smartclock-0.2.0-firmware.bin` 을 같은 방법으로 올립니다. 0.2.0 도 D 대신 C 로 표시하고, 페이지는 영어만, 화면은 한국어만으로 돌아갑니다. 0.2.0 은 `lang` 을 읽지 않으므로 **0.2.0 에서 설정을 저장하면 이 키가 파일에서 빠지고**, 다음에 올릴 때 언어는 한국어로 돌아갑니다.
 
-### 9.4 0.1.3 · 0.1.1(LCD 수정판) → 0.3.0
+### 9.4 0.1.3 · 0.1.1(LCD 수정판) → 0.4.0
 
 Wi-Fi·관리자 비밀번호·URL·토큰·검증 방식·시간대·밝기 설정은 그대로 남습니다. 화면 디자인 설정은 기본값(`C`·`fixed`·15초), 언어는 한국어로 시작합니다.
 
-1. Releases `hardware-v0.3.0` 에서 `smartclock-0.3.0-firmware.bin` 과 `SHA256SUMS` 를 받아 2장 명령으로 확인합니다. `smartclock-0.3.0-firmware.bin: OK` 가 나와야 합니다.
-2. 시계와 같은 Wi-Fi 에서 `http://<시계 IP>/update` 에 로그인하고 `smartclock-0.3.0-firmware.bin` 을 올립니다. "완료" 후 시계가 재시작합니다.
+1. Releases `hardware-v0.4.0` 에서 `smartclock-0.4.0-firmware.bin` 과 `SHA256SUMS` 를 받아 2장 명령으로 확인합니다. `smartclock-0.4.0-firmware.bin: OK` 가 나와야 합니다.
+2. 시계와 같은 Wi-Fi 에서 `http://<시계 IP>/update` 에 로그인하고 `smartclock-0.4.0-firmware.bin` 을 올립니다. "완료" 후 시계가 재시작합니다.
 3. 재시작 후 화면이 디자인 C(좌우 반원 링)로 나오는지 봅니다.
-4. 설정 페이지 맨 위 `펌웨어`(영어 `Firmware`)가 `0.3.0` 인지 확인합니다.
+4. 설정 페이지 맨 위 `펌웨어`(영어 `Firmware`)가 `0.4.0` 인지 확인합니다.
 5. 필요하면 언어(8.3절)와 `화면`(영어 `Display`) 묶음의 디자인·자동 순환을 고르고 저장합니다(8.2절).
 
 0.1.1(LCD 수정판)에서 바로 올리는 경우, 검증 방식은 기존 설정에서 자동으로 정해집니다. 0.1.3 에서 올리는 경우는 0.1.3 의 검증 방식이 그대로 남습니다.
 
-| 0.1.1 설정 | 0.3.0 검증 방식 |
+| 0.1.1 설정 | 0.4.0 검증 방식 |
 |---|---|
 | fingerprint 입력돼 있음 | `fingerprint` |
 | fingerprint 비어 있음 (0.1.1 에서는 검증 안 함이었음) | `CA` |
 
-> **CAUTION** — 0.1.1 에서 fingerprint 를 비우고 Let's Encrypt 가 아닌 HTTPS 서버에 붙어 있었다면 0.3.0 에서는 `CA` 방식이 되어 조회가 실패합니다(`connection failed (TLS …)`). fingerprint 를 넣거나 nginx 인증서를 Let's Encrypt 로 바꿉니다. `http://` 주소는 영향이 없습니다.
+> **CAUTION** — 0.1.1 에서 fingerprint 를 비우고 Let's Encrypt 가 아닌 HTTPS 서버에 붙어 있었다면 0.4.0 에서는 `CA` 방식이 되어 조회가 실패합니다(`connection failed (TLS …)`). fingerprint 를 넣거나 nginx 인증서를 Let's Encrypt 로 바꿉니다. `http://` 주소는 영향이 없습니다.
 
 - 사용량 표시를 처음 연결하려면 `server/README.ko.md` 6장 순서로 URL·토큰·`CA` 를 넣습니다.
 
-#### 되돌리기 (0.3.0 → 0.1.3)
+#### 되돌리기 (0.4.0 → 0.1.3)
 
 1. Releases `hardware-v0.1.3` 의 `smartclock-0.1.3-firmware.bin` 을 같은 `/update` 페이지에 올립니다.
 2. Wi-Fi·비밀번호·URL·토큰·검증 방식은 그대로 남습니다. 화면은 0.1.3 의 막대 화면으로 돌아갑니다.
 
-- 0.1.3 은 디자인·언어 설정 키(`layout`·`layout_mode`·`cycle_sec`·`lang`)를 읽지 않습니다. **0.1.3 에서 설정을 저장하면 이 키들이 파일에서 빠집니다.** 그 뒤 다시 0.3.0 을 올리면 디자인은 기본값(`C`·`fixed`·15초), 언어는 한국어로 돌아갑니다. 0.1.3 에서 저장하지 않았으면 이전 설정이 그대로 살아납니다.
+- 0.1.3 은 디자인·언어 설정 키(`layout`·`layout_mode`·`cycle_sec`·`lang`)를 읽지 않습니다. **0.1.3 에서 설정을 저장하면 이 키들이 파일에서 빠집니다.** 그 뒤 다시 0.4.0 을 올리면 디자인은 기본값(`C`·`fixed`·15초), 언어는 한국어로 돌아갑니다. 0.1.3 에서 저장하지 않았으면 이전 설정이 그대로 살아납니다.
 - 0.1.2 로는 되돌리지 않습니다(0장 CAUTION).
 
 ## 10. 사용량 JSON 계약
@@ -448,7 +459,7 @@ Wi-Fi·관리자 비밀번호·URL·토큰·검증 방식·시간대·밝기 설
 
 | 증상 | 원인·조치 |
 |---|---|
-| 부팅 직후 `Exception (9)` 반복, 화면 없음 | 0.1.0 또는 0.1.2 입니다. 0.3.0(또는 0.1.3)을 시리얼로 기록합니다 |
+| 부팅 직후 `Exception (9)` 반복, 화면 없음 | 0.1.0 또는 0.1.2 입니다. 0.4.0(또는 0.1.3)을 시리얼로 기록합니다 |
 | `Failed to connect` (esptool) | 5장 끝 참조. TX·RX 교차, GPIO0–GND, 전원 재투입 |
 | 설정 페이지 `실패: HTTP 401` (`failed: HTTP 401`) | 토큰 불일치 |
 | `failed: HTTP 429` | 토큰을 여러 번 틀려 중계 서버가 15분 차단, 또는 nginx 요청 수 제한. `server/README.ko.md` 7장 |
@@ -460,9 +471,10 @@ Wi-Fi·관리자 비밀번호·URL·토큰·검증 방식·시간대·밝기 설
 | 화면 디자인이 저절로 바뀜 | `디자인 전환`(Design change)이 순환(`cycle`)입니다. 고정(`fixed`)으로 바꾸고 저장합니다(8.2절) |
 | 설정 저장 시 `순환 간격은 5~300초여야 합니다.` (`Cycle interval must be 5-300 seconds.`) | 순환 간격은 5–300초만 받습니다 |
 | Fable 게이지가 계속 회색 `--` | 중계 서버가 `items[1].pct` 를 `null` 로 줍니다. 계정에 Fable 주간 한도 행이 없는 경우입니다(`server/README.ko.md` 1.4절) |
-| 0.1.3 으로 되돌렸다가 0.3.0 을 다시 올렸더니 디자인이 C 로 돌아감 | 0.1.3 에서 설정을 저장하면 디자인 설정이 지워집니다(9.4절 되돌리기). 다시 고르고 저장합니다 |
-| 화면·페이지 언어가 원하는 언어가 아님 | 설정 페이지 맨 위 `Language / 언어` 에서 고르고 저장합니다(8.3절). 0.2.0 으로 되돌려 저장한 적이 있으면 0.3.0 은 다시 한국어로 시작합니다 |
-| 업로드 후 `펌웨어` 가 0.3.0 이 아님 | 업로드가 끝나기 전에 끊겼습니다. 같은 파일을 다시 올립니다. 부팅이 안 되면 6장(시리얼) |
+| 0.1.3 으로 되돌렸다가 0.4.0 을 다시 올렸더니 디자인이 C 로 돌아감 | 0.1.3 에서 설정을 저장하면 디자인 설정이 지워집니다(9.4절 되돌리기). 다시 고르고 저장합니다 |
+| 0.3.0 으로 되돌렸다가 0.4.0 을 다시 올렸더니 디자인 D 가 C 로 바뀜 | 0.3.0 에서 설정을 저장하면 `D` 자리에 `C` 가 저장됩니다(9.3절 되돌리기). D 를 다시 고르고 저장합니다 |
+| 화면·페이지 언어가 원하는 언어가 아님 | 설정 페이지 맨 위 `Language / 언어` 에서 고르고 저장합니다(8.3절). 0.2.0 으로 되돌려 저장한 적이 있으면 0.4.0 은 다시 한국어로 시작합니다 |
+| 업로드 후 `펌웨어` 가 0.4.0 이 아님 | 업로드가 끝나기 전에 끊겼습니다. 같은 파일을 다시 올립니다. 부팅이 안 되면 6장(시리얼) |
 
 ## 12. 파일 구성
 
@@ -470,8 +482,8 @@ Wi-Fi·관리자 비밀번호·URL·토큰·검증 방식·시간대·밝기 설
 |---|---|
 | `platformio.ini` | env 3개: `smartclock`, `smartclock-ota`, `lcd-diag` |
 | `src/main.cpp` | 부팅 순서, Wi-Fi, NTP, ArduinoOTA, 주 루프 |
-| `src/lcd.cpp` | ST7789 드라이버, 글꼴 렌더러, 안티앨리어싱 원호(`drawRing`) |
-| `src/ui.cpp` | 화면 디자인 A·B·C 배치와 부분 갱신 |
+| `src/lcd.cpp` | ST7789 드라이버, 글꼴 렌더러, 안티앨리어싱 원호(`drawRing`)·둥근 끝 막대(`drawBar`) |
+| `src/ui.cpp` | 화면 디자인 A·B·C·D 배치와 부분 갱신 |
 | `include/i18n.h` / `src/i18n.cpp` | 시계 화면 문구(영어·한국어) |
 | `include/layout_cycle.h` | 고정/자동 순환 디자인 선택 |
 | `src/web.cpp` | 설정 포털, 관리 페이지, `/update` 요청 처리 |
@@ -488,3 +500,4 @@ Wi-Fi·관리자 비밀번호·URL·토큰·검증 방식·시간대·밝기 설
 | `test/pc/web/` | 웹페이지 PC 렌더러(두 언어 HTML 파일) |
 | `docs/wiring.png` | 첫 시리얼 기록용 연결 위치 사진 (4.2절) |
 | `docs/photo-design-b.jpg`, `docs/photo-design-c.jpg` | 디자인 B·C 실기기 사진 (8.2절) |
+| `docs/sim-design-d-ko.png`, `docs/sim-design-d-en.png` | 디자인 D PC 시뮬레이터 화면 (8.2절) |

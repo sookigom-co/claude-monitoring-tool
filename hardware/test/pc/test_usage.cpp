@@ -351,8 +351,9 @@ static void caseDisplaySettings() {
   CHECK(!settings::validCycleSec(4) && settings::validCycleSec(5) && settings::validCycleSec(300) &&
         !settings::validCycleSec(301));
   Layout l;
-  CHECK(!settings::parseLayout(nullptr, l) && !settings::parseLayout("", l) && !settings::parseLayout("D", l));
-  for (Layout layout : {Layout::A, Layout::B, Layout::C}) {
+  CHECK(!settings::parseLayout(nullptr, l) && !settings::parseLayout("", l) && !settings::parseLayout("E", l));
+  CHECK(settings::parseLayout("D", l) && l == Layout::D);
+  for (Layout layout : {Layout::A, Layout::B, Layout::C, Layout::D}) {
     for (LayoutMode mode : {LayoutMode::Fixed, LayoutMode::Cycle}) {
       Settings in;
       in.layout = layout;
@@ -366,6 +367,32 @@ static void caseDisplaySettings() {
       CHECK(out.layout == layout && out.layoutMode == mode && out.cycleSec == 42);
     }
   }
+}
+
+static void caseLayoutDSettings() {
+  std::puts("settings JSON: layout D, 0.3.0 files, invalid values");
+  // Exactly the keys 0.3.0 writes (settings::toJson in that release).
+  for (const char *layout : {"A", "B", "C"}) {
+    char json[400];
+    std::snprintf(json, sizeof(json), R"({"admin_pass":"admin-pass","ap_pass":"ap-pass1","usage_url":"https://x/clock/usage",
+        "usage_token":"t","tls_fp":"","tls_mode":"ca","tz":"KST-9","brightness":55,"refresh_min":7,
+        "layout":"%s","layout_mode":"cycle","cycle_sec":20,"lang":"en"})", layout);
+    Settings s = loadSettings(json);
+    CHECK_STR(settings::layoutName(s.layout), layout);
+    CHECK(s.layoutMode == LayoutMode::Cycle && s.cycleSec == 20 && s.lang == Lang::En && s.brightness == 55);
+  }
+  CHECK(loadSettings(R"({"layout":"D"})").layout == Layout::D);
+  CHECK(loadSettings(R"({"layout":"D","layout_mode":"cycle"})").layoutMode == LayoutMode::Cycle);
+  for (const char *bad : {R"({"layout":"d"})", R"({"layout":"E"})", R"({"layout":"DD"})", R"({"layout":3})", R"({"layout":null})"}) {
+    CHECK(loadSettings(bad).layout == Layout::C);
+  }
+  CHECK(LAYOUT_COUNT == 4);
+  CHECK_STR(settings::layoutName(Layout::D), "D");
+  Settings in;
+  in.layout = Layout::D;
+  JsonDocument doc;
+  settings::toJson(in, doc.to<JsonVariant>());
+  CHECK_STR(doc["layout"].as<const char *>(), "D");
 }
 
 static void caseLangSettings() {
@@ -517,6 +544,44 @@ static void caseEnglishLayout() {
   CHECK(missing == 0);
 }
 
+static void caseLayoutD() {
+  std::puts("0.4.0 design D: glyph coverage and widths");
+  int missing = 0;
+  for (Lang lang : {Lang::En, Lang::Ko}) {
+    const int w = textWidth(FONT_XS, i18n::text(lang, Msg::Last7Days), &missing);
+    std::printf("    header %-24s %3dpx (box 224)\n", i18n::text(lang, Msg::Last7Days), w);
+    CHECK(w <= 224);
+  }
+  CHECK_STR(i18n::text(Lang::En, Msg::Last7Days), "Last 7 days");
+  CHECK_STR(i18n::text(Lang::Ko, Msg::Last7Days), "최근 7일 사용량");
+  // Name box 76px in FONT_M; the number box is 122px for FONT_L digits plus a FONT_P "%".
+  for (const char *name : {"Claude", "Fable"}) {
+    const int w = textWidth(FONT_M, name, &missing);
+    std::printf("    name %-8s %3dpx (box 76)\n", name, w);
+    CHECK(w <= 76);
+  }
+  const int sign = textWidth(FONT_P, "%", &missing);
+  for (const char *n : {"0", "7", "42", "100", "--"}) {
+    const int w = textWidth(FONT_L, n, &missing) + (std::strcmp(n, "--") ? sign : 0);
+    std::printf("    value %-4s %3dpx (box 122)\n", n, w);
+    CHECK(w <= 122);
+  }
+  // Every footer text of design D fits the 224px box whole, so fitText never shortens it.
+  const char *footers[] = {"초기화 12-31 23:59 · 23:59 기준", "초기화 12-31 23:59 · 지연 · 23:59 기준",
+                           "서버 오류 usage_http_5", "서버 오류 credentials_", "실패 · 47시간 전", "실패", "불러오는 중",
+                           "Wi-Fi 연결 끊김", "Wi-Fi 연결 중", "시각 동기화 대기", "인증서 검증 안 함", "토큰 평문 전송", "URL 미설정",
+                           "Reset 12-31 23:59 \xC2\xB7 as of 23:59", "Reset 12-31 23:59 \xC2\xB7 Stale \xC2\xB7 as of 23:59",
+                           "Server error usage_http_5", "Server error credentials_", "Failed \xC2\xB7 47h ago", "Failed",
+                           "Loading", "Wi-Fi offline", "Connecting Wi-Fi", "Waiting for time", "No cert check",
+                           "Plaintext token", "No URL set"};
+  for (const char *t : footers) {
+    const int w = textWidth(FONT_XS, t, &missing);
+    std::printf("    footer %-40s %3dpx (box 224)\n", t, w);
+    CHECK(w <= 224);
+  }
+  CHECK(missing == 0);
+}
+
 int main() {
   caseDraft();
   caseRejectsAndLimits();
@@ -529,10 +594,12 @@ int main() {
   caseTlsPolicy();
   caseLayout();
   caseDisplaySettings();
+  caseLayoutDSettings();
   caseLangSettings();
   caseScreenTextTable();
   caseEnglishHeader();
   caseEnglishLayout();
+  caseLayoutD();
   std::printf("%d checks, %d failures\n", checks, failures);
   return failures ? 1 : 0;
 }

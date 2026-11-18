@@ -7,7 +7,7 @@
 
 ## English
 
-This project wipes the stock firmware of the SD Pro smart clock (ESP8266) and installs our own firmware, which shows the time together with **weekly Claude and Fable usage** (ring gauges, 3 screen designs, English or Korean display).
+This project wipes the stock firmware of the SD Pro smart clock (ESP8266) and installs our own firmware, which shows the time together with **weekly Claude and Fable usage** (ring gauges, 4 screen designs including a usage-only design, English or Korean display).
 
 - Clock used in this project (SD Pro smart clock): [buy on AliExpress](https://s.click.aliexpress.com/e/_c2IU0b1X)
 
@@ -21,7 +21,7 @@ Real device running firmware 0.3.0 with Korean display. The screen design is cho
 
 | Folder | Contents | Current version | Manual |
 |---|---|---|---|
-| [`hardware/`](hardware/) | Clock firmware (PlatformIO · Arduino ESP8266) | **0.3.0** | [English](hardware/README.md) · [한국어](hardware/README.ko.md) |
+| [`hardware/`](hardware/) | Clock firmware (PlatformIO · Arduino ESP8266) | **0.4.0** | [English](hardware/README.md) · [한국어](hardware/README.ko.md) |
 | [`server/`](server/) | Usage relay server `clock-usage-relay` (Python standard library) + front nginx config | **1.2.0** | [English](server/README.md) · [한국어](server/README.ko.md) |
 
 ```
@@ -41,7 +41,7 @@ Real device running firmware 0.3.0 with Korean display. The screen design is cho
 
 1. **Install the relay** — server manual, Section 4 (relay server)
 2. **Connect nginx and publish over HTTPS** — server manual, Section 5 (nginx server + relay server firewall)
-3. **Flash the clock firmware** — hardware manual, Sections 4–7 (the first flash requires a USB-serial adapter). If the clock already runs our firmware, use Section 9.3 (over-the-air update from 0.2.0 to 0.3.0) or Section 9.4 (from 0.1.1 LCD-fix build or 0.1.3)
+3. **Flash the clock firmware** — hardware manual, Sections 4–7 (the first flash requires a USB-serial adapter). If the clock already runs our firmware, use Section 9.3 (over-the-air update from 0.3.0 or 0.2.0 to 0.4.0) or Section 9.4 (from 0.1.1 LCD-fix build or 0.1.3)
 4. **Enter the URL and token on the clock** — server manual, Section 6
 
 Manuals: hardware [English](hardware/README.md) · [한국어](hardware/README.ko.md), server [English](server/README.md) · [한국어](server/README.ko.md).
@@ -52,7 +52,8 @@ Binaries are published on GitHub Releases. The repository does not contain binar
 
 | Release | Files |
 |---|---|
-| `hardware-v0.3.0` (latest) | `smartclock-0.3.0-firmware.bin`, `lcd-diag-0.3.0-firmware.bin`, `SHA256SUMS` |
+| `hardware-v0.4.0` (latest) | `smartclock-0.4.0-firmware.bin`, `lcd-diag-0.4.0-firmware.bin`, `SHA256SUMS` |
+| `hardware-v0.3.0` | `smartclock-0.3.0-firmware.bin`, `lcd-diag-0.3.0-firmware.bin`, `SHA256SUMS` (for rollback) |
 | `hardware-v0.2.0` | `smartclock-0.2.0-firmware.bin`, `lcd-diag-0.2.0-firmware.bin`, `SHA256SUMS` (for rollback) |
 | `hardware-v0.1.3` | `smartclock-0.1.3-firmware.bin`, `lcd-diag-0.1.3-firmware.bin`, `SHA256SUMS` (for rollback) |
 | `server-v1.2.0` | `clock-usage-relay-1.2.0.tar.gz`, `SHA256SUMS` |
@@ -65,7 +66,7 @@ This repository contains no tokens, credentials, or Wi-Fi passwords. `.gitignore
 
 ## 한국어
 
-SD Pro 스마트 클락(ESP8266)의 순정 펌웨어를 지우고 자체 펌웨어를 올려, 시계와 **Claude·Fable 주간 사용률**(원형 게이지, 화면 디자인 3종, 영어·한국어 표시)을 함께 표시하는 프로젝트입니다.
+SD Pro 스마트 클락(ESP8266)의 순정 펌웨어를 지우고 자체 펌웨어를 올려, 시계와 **Claude·Fable 주간 사용률**(원형 게이지, 사용량 전용 디자인을 포함한 화면 디자인 4종, 영어·한국어 표시)을 함께 표시하는 프로젝트입니다.
 
 - 이 프로젝트에 쓴 시계(SD Pro 스마트 클락): [AliExpress 에서 구매](https://s.click.aliexpress.com/e/_c2IU0b1X)
 
@@ -79,7 +80,7 @@ SD Pro 스마트 클락(ESP8266)의 순정 펌웨어를 지우고 자체 펌웨�
 
 | 폴더 | 내용 | 현재 버전 | 사용 설명서 |
 |---|---|---|---|
-| [`hardware/`](hardware/) | 시계 펌웨어 (PlatformIO · Arduino ESP8266) | **0.3.0** | [한국어](hardware/README.ko.md) · [English](hardware/README.md) |
+| [`hardware/`](hardware/) | 시계 펌웨어 (PlatformIO · Arduino ESP8266) | **0.4.0** | [한국어](hardware/README.ko.md) · [English](hardware/README.md) |
 | [`server/`](server/) | 사용량 중계 서버 `clock-usage-relay` (Python 표준 라이브러리) + 앞단 nginx 설정 | **1.2.0** | [한국어](server/README.ko.md) · [English](server/README.md) |
 
 ```
@@ -97,7 +98,7 @@ SD Pro 스마트 클락(ESP8266)의 순정 펌웨어를 지우고 자체 펌웨�
 
 1. **relay 설치** — `server/README.ko.md` 4장 (relay 서버)
 2. **nginx 연결·HTTPS 공개** — `server/README.ko.md` 5장 (nginx 서버 + relay 서버 방화벽)
-3. **시계 펌웨어 기록** — `hardware/README.ko.md` 4~7장 (처음 한 번은 USB-시리얼 어댑터로 기록), 이미 우리 펌웨어가 있으면 9.3절(0.2.0 에서 무선 업데이트로 0.3.0) 또는 9.4절(0.1.1 LCD 수정판·0.1.3 에서)
+3. **시계 펌웨어 기록** — `hardware/README.ko.md` 4~7장 (처음 한 번은 USB-시리얼 어댑터로 기록), 이미 우리 펌웨어가 있으면 9.3절(0.3.0 · 0.2.0 에서 무선 업데이트로 0.4.0) 또는 9.4절(0.1.1 LCD 수정판·0.1.3 에서)
 4. **시계에 URL·토큰 입력** — `server/README.ko.md` 6장
 
 ### 빌드된 파일
@@ -106,7 +107,8 @@ GitHub Releases 에 올립니다. 저장소에는 바이너리를 넣지 않습�
 
 | 릴리스 | 파일 |
 |---|---|
-| `hardware-v0.3.0` (최신) | `smartclock-0.3.0-firmware.bin`, `lcd-diag-0.3.0-firmware.bin`, `SHA256SUMS` |
+| `hardware-v0.4.0` (최신) | `smartclock-0.4.0-firmware.bin`, `lcd-diag-0.4.0-firmware.bin`, `SHA256SUMS` |
+| `hardware-v0.3.0` | `smartclock-0.3.0-firmware.bin`, `lcd-diag-0.3.0-firmware.bin`, `SHA256SUMS` (되돌리기용) |
 | `hardware-v0.2.0` | `smartclock-0.2.0-firmware.bin`, `lcd-diag-0.2.0-firmware.bin`, `SHA256SUMS` (되돌리기용) |
 | `hardware-v0.1.3` | `smartclock-0.1.3-firmware.bin`, `lcd-diag-0.1.3-firmware.bin`, `SHA256SUMS` (되돌리기용) |
 | `server-v1.2.0` | `clock-usage-relay-1.2.0.tar.gz`, `SHA256SUMS` |
