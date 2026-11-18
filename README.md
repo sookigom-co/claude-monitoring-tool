@@ -22,14 +22,14 @@ Real device running firmware 0.3.0 with Korean display. The screen design is cho
 | Folder | Contents | Current version | Manual |
 |---|---|---|---|
 | [`hardware/`](hardware/) | Clock firmware (PlatformIO · Arduino ESP8266) | **0.3.0** | [English](hardware/README.md) · [한국어](hardware/README.ko.md) |
-| [`server/`](server/) | Usage relay server `clock-usage-relay` (Python standard library) + front nginx config | **1.2.0** | [English](server/README.md) · [한국어](server/README.ko.md) |
+| [`server/`](server/) | Usage relay server `clock-usage-relay` (Python standard library) + front nginx config | **1.3.0** | [English](server/README.md) · [한국어](server/README.ko.md) |
 
 ```
                       HTTPS 443                            HTTP 8787                         HTTPS
 ┌──────────────────┐                ┌───────────────────┐                ┌────────────────┐            ┌───────────────────┐
 │ Clock (hardware) │ ─────────────▶ │ Front nginx proxy │ ─────────────▶ │ relay (server) │ ─────────▶ │ api.anthropic.com │
 │ ESP8266          │  Bearer token  │ TLS termination,  │  internal      │ token check,   │  once per  │                   │
-│                  │                │ path restriction  │  network only  │ cache          │  5 min     │                   │
+│                  │                │ path restriction  │  network only  │ 5-min samples  │  5 min     │                   │
 └──────────────────┘                └───────────────────┘                └────────────────┘            └───────────────────┘
 ```
 
@@ -55,7 +55,8 @@ Binaries are published on GitHub Releases. The repository does not contain binar
 | `hardware-v0.3.0` (latest) | `smartclock-0.3.0-firmware.bin`, `lcd-diag-0.3.0-firmware.bin`, `SHA256SUMS` |
 | `hardware-v0.2.0` | `smartclock-0.2.0-firmware.bin`, `lcd-diag-0.2.0-firmware.bin`, `SHA256SUMS` (for rollback) |
 | `hardware-v0.1.3` | `smartclock-0.1.3-firmware.bin`, `lcd-diag-0.1.3-firmware.bin`, `SHA256SUMS` (for rollback) |
-| `server-v1.2.0` | `clock-usage-relay-1.2.0.tar.gz`, `SHA256SUMS` |
+| `server-v1.3.0` | `clock-usage-relay-1.3.0.tar.gz`, `SHA256SUMS` |
+| `server-v1.2.0` | `clock-usage-relay-1.2.0.tar.gz`, `SHA256SUMS` (for rollback) |
 
 ### Secrets
 
@@ -80,12 +81,12 @@ SD Pro 스마트 클락(ESP8266)의 순정 펌웨어를 지우고 자체 펌웨�
 | 폴더 | 내용 | 현재 버전 | 사용 설명서 |
 |---|---|---|---|
 | [`hardware/`](hardware/) | 시계 펌웨어 (PlatformIO · Arduino ESP8266) | **0.3.0** | [한국어](hardware/README.ko.md) · [English](hardware/README.md) |
-| [`server/`](server/) | 사용량 중계 서버 `clock-usage-relay` (Python 표준 라이브러리) + 앞단 nginx 설정 | **1.2.0** | [한국어](server/README.ko.md) · [English](server/README.md) |
+| [`server/`](server/) | 사용량 중계 서버 `clock-usage-relay` (Python 표준 라이브러리) + 앞단 nginx 설정 | **1.3.0** | [한국어](server/README.ko.md) · [English](server/README.md) |
 
 ```
 ┌──────────────┐  HTTPS 443   ┌───────────────────┐  HTTP 8787   ┌──────────────┐  HTTPS   ┌───────────────────┐
 │ 시계 (hardware)│ ───────────▶ │ 앞단 nginx 프록시 서버 │ ───────────▶ │ relay (server) │ ───────▶ │ api.anthropic.com │
-│ ESP8266       │  Bearer 토큰  │ TLS 종료·경로 제한   │  내부망 전용   │ 토큰 확인·캐시   │  5분 1회  │                   │
+│ ESP8266       │  Bearer 토큰  │ TLS 종료·경로 제한   │  내부망 전용   │ 토큰 확인·표본   │  5분 1회  │                   │
 └──────────────┘              └───────────────────┘              └──────────────┘          └───────────────────┘
 ```
 
@@ -109,7 +110,8 @@ GitHub Releases 에 올립니다. 저장소에는 바이너리를 넣지 않습�
 | `hardware-v0.3.0` (최신) | `smartclock-0.3.0-firmware.bin`, `lcd-diag-0.3.0-firmware.bin`, `SHA256SUMS` |
 | `hardware-v0.2.0` | `smartclock-0.2.0-firmware.bin`, `lcd-diag-0.2.0-firmware.bin`, `SHA256SUMS` (되돌리기용) |
 | `hardware-v0.1.3` | `smartclock-0.1.3-firmware.bin`, `lcd-diag-0.1.3-firmware.bin`, `SHA256SUMS` (되돌리기용) |
-| `server-v1.2.0` | `clock-usage-relay-1.2.0.tar.gz`, `SHA256SUMS` |
+| `server-v1.3.0` | `clock-usage-relay-1.3.0.tar.gz`, `SHA256SUMS` |
+| `server-v1.2.0` | `clock-usage-relay-1.2.0.tar.gz`, `SHA256SUMS` (되돌리기용) |
 
 ### 비밀값
 

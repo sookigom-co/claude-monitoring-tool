@@ -1,14 +1,16 @@
 **English** | [한국어](README.ko.md)
 
-# clock-usage-relay (server) — 1.2.0
+# clock-usage-relay (server) — 1.3.0
 
 A relay server that fetches the **Claude subscription weekly-limit usage (%)** from Anthropic and serves it as a small JSON document for the smart clock to show at the bottom of its screen. It uses only the Python 3.9+ standard library (zero external packages).
+
+Since 1.3.0 the relay **stores a usage sample every 5 minutes** regardless of clock requests (`sqlite3`, kept for 14 days). It answers clock requests straight from the latest stored sample and also returns **increase values** computed from sample differences (last hour, last 24 hours, and per clock hour). The rules are in Section 2.1.
 
 The clock firmware is in [`../hardware/README.md`](../hardware/README.md).
 
 ```
 [Clock ESP8266] --HTTPS, Bearer relay token--> [Front nginx proxy server] --HTTP (internal network)--> [relay :8787] --once per 5 min--> api.anthropic.com
-                                               TLS termination, path limit, rate limit                 token check, cache, OAuth refresh
+                                               TLS termination, path limit, rate limit                 token check, sample store, OAuth refresh
 ```
 
 The Anthropic OAuth token stays inside the relay server only. The clock receives only the usage numbers.
@@ -17,8 +19,12 @@ The Anthropic OAuth token stays inside the relay server only. The clock receives
 
 | Item | Status |
 |---|---|
-| Unit tests (`tests/test_relay.py`) | `CONFIRMED` — 32 passed (2026-11-15) |
-| nginx integration tests (`tests/integration/run_nginx_it.sh`) | `CONFIRMED` — 11 passed with nginx 1.26.3 (Debian 13 package) + the bundled config file (2026-11-15). Section 10.2 |
+| Unit tests (`tests/test_relay.py`) | `CONFIRMED` — 60 passed (2026-11-18) |
+| nginx integration tests (`tests/integration/run_nginx_it.sh`) | `CONFIRMED` — 12 passed with nginx 1.26.3 (Debian 13 package `1.26.3-3+deb13u7`) + the bundled config file (2026-11-18). Section 10.2 |
+| `python3` on the production server has the `sqlite3` module | `UNVERIFIED` — checked in step 1 of Section 8 |
+| Upstream `utilization` has decimals | `UNVERIFIED` — the relay stores the value as is. Check `pct_raw` in the response |
+| The weekly limit is a fixed window that drops to 0 at `resets_at` | `SUSPECT` — increase values assume this (Section 2.1). Raw samples are kept so it can be checked later |
+| Upstream tolerates 288 queries per day | `SUSPECT` — CAUTION in Section 3 |
 | Actual Anthropic response format, presence of the Fable row | `UNVERIFIED` — check on the first call after installation (Section 4.5) |
 | Clock connecting via a real domain and Let's Encrypt certificate | `UNVERIFIED` |
 
@@ -82,7 +88,7 @@ Order in which the relay determines the Fable slot:
 Relay behavior:
 - Refreshes ahead of time when within 5 minutes of expiry. If the usage query returns 401/403, refreshes once and retries.
 - **Atomically writes** the refresh result (new access/refresh token) back to the credentials file (temp file → `rename`, mode 600).
-- If the refresh fails, serves the last value unchanged with `status:"stale"` and `error:"refresh_failed"`.
+- If the refresh fails, no sample is stored and the response keeps serving the last sample with `error:"refresh_failed"`. `status` turns `"stale"` once the last sample is older than sample interval × 2 (Section 2).
 
 > **CAUTION** — Because the refresh token rotates, **if the relay and another Claude Code instance share the same login, one of them gets logged out.** Use credentials from a fresh login dedicated to the relay (Section 4.3).
 
@@ -95,25 +101,47 @@ Relay behavior:
 `GET /clock/usage` · header `Authorization: Bearer <relay token>`
 
 ```json
-{"updated":"2026-11-13T19:30:16+09:00","period":"7d",
- "items":[{"label":"Claude","value":"42%","pct":42,"resets":"11-18 09:00"},
-          {"label":"Fable","value":"17%","pct":17,"resets":"11-18 09:00"}],
- "status":"ok"}
+{"updated":"2026-11-18T14:25:00+09:00","period":"7d","status":"ok","version":"1.3.0","sample_age_s":120,
+ "items":[{"label":"Claude","value":"42%","pct":42,"resets":"11-18 09:00","pct_raw":42.3,"delta_1h":1.4,"delta_24h":11.2},
+          {"label":"Fable","value":"17%","pct":17,"resets":"11-18 09:00","pct_raw":17.0,"delta_1h":0.0,"delta_24h":2.0}]}
+```
+
+With `GET /clock/usage?hourly=1` each item also carries `hourly` (24 values).
+
+```json
+{"label":"Claude", …, "delta_24h":11.2,"hourly":[0.0,null,0.3,1.1, … ,0.4]}
 ```
 
 | Field | Format | Description |
 |---|---|---|
-| `updated` | ISO8601 string \| `null` | Time of the last **successful** query (`RELAY_TZ`, default KST). `null` if it has never succeeded |
+| `updated` | ISO8601 string \| `null` | Time of the latest sample = the last **successful** query (`RELAY_TZ`, default KST). `null` if there is no sample |
 | `period` | `"7d"` | Fixed |
 | `items[]` | Always 2, in the order `Claude`, `Fable` | |
 | `items[].value` | String | `"42%"` or `"n/a"` |
 | `items[].pct` | Integer 0–100 \| `null` | Rounded and range-clamped |
 | `items[].resets` | `"MM-DD HH:MM"` (optional) | Weekly limit reset time. If unknown, the field is omitted entirely |
-| `status` | `"ok"` \| `"stale"` \| `"error"` | **Additional field.** `stale` = the latest query failed, showing the previous value. `error` = no successful query yet |
-| `error` | String (optional) | **Additional field.** `refresh_failed`, `usage_http_401`, `network`, `credentials_unreadable`, etc. |
+| `status` | `"ok"` \| `"stale"` \| `"error"` | **Additional field.** Set from the age of the latest sample. `ok` = within sample interval × 2 (default 600 s). `stale` = older than that, showing the last sample. `error` = no sample at all |
+| `error` | String (optional) | **Additional field.** Code of the most recent upstream call if it failed. `refresh_failed`, `usage_http_401`, `network`, `credentials_unreadable`, `internal`, `storage_error` (sample file read/write failed), `no_sample` (just started, before the first sample). May appear with `status` `ok` (one call failed but the sample is still fresh) |
+| `version` | String | **Added in 1.3.0.** Relay version |
+| `sample_age_s` | Integer \| `null` | **Added in 1.3.0.** Age of the latest sample in seconds |
+| `items[].pct_raw` | Number \| `null` | **Added in 1.3.0.** Upstream value as is (no rounding or clamping) |
+| `items[].delta_1h` | Number \| `null` | **Added in 1.3.0.** Increase over roughly the last hour (percentage points, 1 decimal). Section 2.1 |
+| `items[].delta_24h` | Number \| `null` | **Added in 1.3.0.** Increase over roughly the last 24 hours (percentage points, 1 decimal) |
+| `items[].hourly` | 24 × number \| `null` (optional) | **Added in 1.3.0, only with `?hourly=1`.** Increase in each of the last 24 **completed** clock hours, oldest first. The last value is the previous hour (13:00–14:00 when queried at 14:25) |
 
+- The 1.2.0 fields (`updated`, `period`, `status`, `items[].label/value/pct/resets`) keep their format and meaning in 1.3.0. `pct` is still an integer.
+- The default response is about 340 bytes and the `?hourly=1` response about 550–600 bytes (measured against the mock server). A test pins both below the clock's 4,096-byte body limit. Firmware 0.3.0 does not use `?hourly=1`.
 - `status` and `error` are **additions** relative to the SOO-597 draft. The firmware can simply ignore unknown fields. Firmware 0.1.1 and later shows `status` in the header line (`hardware/README.md` Section 10).
-- Other responses: missing or mismatched token `401 {"error":"unauthorized"}`, client address locked out after repeated wrong tokens `429 {"error":"too_many_failures"}` + `Retry-After` (seconds), other paths `404`, methods other than GET `405`, `GET /healthz` returns `{"ok":true}` without auth (not exposed externally in the Section 5 nginx setup).
+- Other responses: missing or mismatched token `401 {"error":"unauthorized"}`, client address locked out after repeated wrong tokens `429 {"error":"too_many_failures"}` + `Retry-After` (seconds), other paths `404`, methods other than GET `405`, `GET /healthz` returns `{"ok":true,"version":"1.3.0","samples":288,"latest_sample":"2026-11-18T14:25:00+09:00"}` without auth (sample count and latest sample time only, no usage values; `samples` and `latest_sample` are `null` if the sample file cannot be read; not exposed externally in the Section 5 nginx setup).
+
+### 2.1 Increase values
+
+- **Samples.** The relay calls upstream once right after start and then every `RELAY_SAMPLE_SECONDS` (default 300 s), storing the Claude and Fable values and each `resets_at` as one row. A failed call leaves no row (a gap). Time while the server was down is also a gap and is never filled with 0.
+- **`delta_1h`, `delta_24h`.** Latest sample − the newest sample taken at least 60 minutes / 24 hours before the latest sample. Because samples are 5 minutes apart, the real span can be **up to 5 minutes longer** than 60 minutes (the same for 24 hours). `null` if there is no comparison sample or it is more than sample interval × 2 older than the target time (the server was down).
+- **`hourly`.** Clock-hour buckets in `RELAY_TZ`. Value for hour h = (last sample in h) − (last sample in h−1). `null` if either hour has no sample.
+- **Reset correction.** If `resets_at` moves by 1 hour or more between the compared samples, the weekly limit is treated as reset and increase = (last sample before the reset − start sample) + (end sample − 0). `null` if that last pre-reset sample is more than sample interval × 2 before the old `resets_at` time (no sample near the reset). `resets_at` jitter under 1 hour is not treated as a reset.
+- **Decreases.** If the value drops while `resets_at` stays the same, the negative value is returned as is (not clipped to 0). This is used to check whether the weekly limit is a rolling window.
+- **Rounding.** Values are stored exactly as upstream sends them and rounded to 1 decimal only in the response. If upstream sends integers only, values look like `1.0`.
 
 
 ---
@@ -127,7 +155,9 @@ Put these in `/etc/clock-usage-relay/relay.env` (example: `deploy/relay.env.exam
 | `RELAY_BIND` | `127.0.0.1` | Bind address. **If nginx is on a different server**, change it to the relay server's internal IP or `0.0.0.0` (Section 5.3) |
 | `RELAY_PORT` | `8787` | Port |
 | `RELAY_TRUSTED_PROXIES` | `127.0.0.1,::1` | nginx server address. Comma-separated, CIDR allowed (`10.0.0.12`, `10.0.0.0/24`). Only for requests from these addresses is the last value of `X-Forwarded-For` treated as the real client address. The relay refuses to start on invalid values |
-| `RELAY_CACHE_SECONDS` | `300` | Upstream call interval (minimum 30). This interval is respected even after failures |
+| `RELAY_SAMPLE_SECONDS` | `300` | Sample interval = upstream call interval (minimum 60). Respected even after failures. If unset, the 1.2.0 `RELAY_CACHE_SECONDS` value is used |
+| `RELAY_SAMPLE_RETENTION_DAYS` | `14` | Days of samples kept (minimum 2). Older rows are deleted every time a sample is stored. 14 days ≈ 4,032 rows, under 1 MB |
+| `RELAY_SAMPLES_DB` | `$STATE_DIRECTORY/samples.db` | Sample file (`sqlite3`). Under systemd this is `/var/lib/clock-usage-relay/samples.db`. The file is mode 600; a missing folder is created with mode 700 |
 | `RELAY_TZ` | `Asia/Seoul` | Display time zone |
 | `RELAY_CREDENTIALS_FILE` | (required) | File in Claude Code `.credentials.json` format. The relay rewrites it on refresh |
 | `RELAY_CLOCK_TOKEN_FILE` | (required, or `RELAY_CLOCK_TOKEN`) | Clock auth token. At least 16 characters |
@@ -135,6 +165,8 @@ Put these in `/etc/clock-usage-relay/relay.env` (example: `deploy/relay.env.exam
 | `RELAY_AUTH_WINDOW_SECONDS` | `600` | Window for counting failures (seconds) |
 | `RELAY_AUTH_LOCKOUT_SECONDS` | `900` | Lockout duration (seconds). During lockout even a correct token gets `429` |
 | `RELAY_USAGE_URL` · `RELAY_TOKEN_URL` · `RELAY_OAUTH_CLIENT_ID` · `RELAY_OAUTH_SCOPES` · `RELAY_OAUTH_BETA` | Values from the Section 1 tables | For changing these without code edits if the upstream format changes |
+
+> **CAUTION** — 1.3.0 calls upstream **up to 288 times a day** (every 5 minutes) no matter how many clocks there are. 1.2.0 made at most 144 calls. Whether upstream allows this rate is `SUSPECT`. If the log shows blocking such as `usage_http_429`, set `RELAY_SAMPLE_SECONDS=600` and restart.
 
 > **CAUTION** — If nginx is on a different server and its address is not in `RELAY_TRUSTED_PROXIES`, the relay sees every clock as the single nginx address. Then anyone can **lock out all clocks for 15 minutes** just by sending a wrong token 10 times. If the relay starts in this state, the log shows a `RELAY_TRUSTED_PROXIES has only loopback` warning.
 
@@ -213,7 +245,7 @@ journalctl -u clock-usage-relay -n 50 --no-pager      # check for "listening on 
 ```bash
 H=127.0.0.1        # if RELAY_BIND is set to an internal IP, use that IP
 TOKEN="$(cat /var/lib/clock-usage-relay/clock_token)"
-curl -s http://$H:8787/healthz                                     # {"ok":true}
+curl -s http://$H:8787/healthz                                     # {"ok":true,"version":"1.3.0","samples":1,…}
 curl -s -H "Authorization: Bearer $TOKEN" http://$H:8787/clock/usage; echo
 curl -s -o /dev/null -w '%{http_code}\n' http://$H:8787/clock/usage   # 401
 unset TOKEN
@@ -471,7 +503,44 @@ Then change the Bearer token on the clock settings page to the new value.
 
 ---
 
-## 8. Upgrading (1.1.0 → 1.2.0)
+## 8. Upgrading (1.2.0 → 1.3.0)
+
+> **WARNING** — These commands run as root on a production server. The board, or a person the board designates, runs them directly. Agents do not run them via `ssh-rw` (company rule SOO-184).
+
+The systemd unit file and `relay.env` **do not need changes.** The sample file is created inside the unit's `StateDirectory=clock-usage-relay` (= `/var/lib/clock-usage-relay`, mode 700), which stays writable under `ProtectSystem=strict`. An existing `RELAY_CACHE_SECONDS=300` is used as the sample interval.
+
+1. Check that the relay server's `python3` has the `sqlite3` module. If it prints a version number, continue. If it prints `ModuleNotFoundError`, **stop here** and record the result on the task.
+   ```bash
+   python3 -c 'import sqlite3; print(sqlite3.sqlite_version)'
+   ```
+2. Download `clock-usage-relay-1.3.0.tar.gz` and `SHA256SUMS` from Release `server-v1.3.0`, verify, and unpack.
+   ```bash
+   sha256sum -c SHA256SUMS
+   tar xzf clock-usage-relay-1.3.0.tar.gz && cd clock-usage-relay-1.3.0
+   ```
+3. Keep the current file, install the new one, and restart.
+   ```bash
+   cp -p /opt/clock-usage-relay/clock_usage_relay.py /opt/clock-usage-relay/clock_usage_relay.py.1.2.0
+   install -m 644 clock_usage_relay.py /opt/clock-usage-relay/
+   systemctl restart clock-usage-relay
+   journalctl -u clock-usage-relay -n 5 --no-pager    # "sample every 300s into /var/lib/clock-usage-relay/samples.db"
+   ```
+4. Check that samples accumulate. `samples` of 1 or more with `latest_sample` at the current time is normal. Five minutes later it should be one higher.
+   ```bash
+   curl -s http://127.0.0.1:8787/healthz; echo          # use the LAN IP if RELAY_BIND is set to it
+   ls -l /var/lib/clock-usage-relay/samples.db         # -rw------- clockrelay clockrelay
+   ```
+5. Check the clock response (as in Section 4.5). `"version":"1.3.0"` means it worked. For the first hour after the upgrade `delta_1h` is `null`, and `delta_24h` is `null` for the first 24 hours (no comparison sample yet).
+
+**Rolling back.** Put back the saved 1.2.0 file and restart. 1.2.0 ignores `samples.db` and the `RELAY_SAMPLE_*` settings, so they can stay. To delete the samples: `rm /var/lib/clock-usage-relay/samples.db`.
+
+```bash
+install -m 644 /opt/clock-usage-relay/clock_usage_relay.py.1.2.0 /opt/clock-usage-relay/clock_usage_relay.py
+systemctl restart clock-usage-relay
+```
+
+### 8.1 Earlier upgrade (1.1.0 → 1.2.0)
+
 
 On the relay server, change to the `server/` folder and run:
 
@@ -499,7 +568,7 @@ journalctl -u clock-usage-relay -n 5 --no-pager
 ```bash
 systemctl disable --now clock-usage-relay
 rm -f /etc/systemd/system/clock-usage-relay.service && systemctl daemon-reload
-rm -rf /opt/clock-usage-relay /etc/clock-usage-relay /var/lib/clock-usage-relay   # deletes the credentials file too
+rm -rf /opt/clock-usage-relay /etc/clock-usage-relay /var/lib/clock-usage-relay   # deletes the credentials file and the sample file (samples.db) too
 userdel clockrelay
 ```
 
@@ -516,7 +585,11 @@ cd server
 python3 -m unittest discover -s tests -v
 ```
 
-Starts a mock upstream server and runs 32 checks. They cover: contract format and values, OAuth tokens never leaking into responses, clock auth rejection, caching, 401 → refresh → retry and saving the rotated token (mode 600), proactive refresh near expiry, `stale` on refresh failure, `error` on first-call failure, the Fable path, wrong-token lockout and its expiry, `X-Forwarded-For` handling for trusted proxies, and the 1.2.0 additions (CIDR and IPv4-mapped trusted proxies, rejection of invalid values, missing-setting warning, ignoring non-IP `X-Forwarded-For`).
+Starts a mock upstream server and runs 60 checks. They cover: contract format and values, OAuth tokens never leaking into responses, clock auth rejection, upstream call interval, 401 → refresh → retry and saving the rotated token (mode 600), proactive refresh near expiry, `stale` on refresh failure, `error` on first-call failure, the Fable path, wrong-token lockout and its expiry, `X-Forwarded-For` handling for trusted proxies, and the 1.2.0 additions (CIDR and IPv4-mapped trusted proxies, rejection of invalid values, missing-setting warning, ignoring non-IP `X-Forwarded-For`).
+
+The 28 checks added in 1.3.0 (temporary sqlite file + injected time) cover: storing samples (decimals kept) and deleting rows past retention, no sample for a failed call, `raw_ok=0` for an unreadable response format, samples surviving a restart, clock requests never calling upstream (call count measured), `status` from sample age, integer `pct` and decimal `pct_raw`, `hourly` only with `?hourly=1`, the `hourly` response staying under 4,096 bytes, `delta_1h`/`delta_24h` basic, `null`, too-old comparison sample, reset correction, missing pre-reset sample, and negative values kept, clock-hour buckets and gaps, sampler exceptions never escaping, sample file write failures reported, `/healthz` sample count, the unit file's `StateDirectory` matching the default path, writing only inside the state folder even when its parent is read-only (modes 600/700), and setting defaults, lower bounds and `RELAY_CACHE_SECONDS` compatibility.
+
+The 32 tests from 1.2.0 remain. Because clock requests no longer call upstream, the tests that need an upstream call now take one sample (`sampler.tick()`) before the request, and the 2 cache tests check the same thing against the sample interval.
 
 ### 10.2 nginx integration tests
 
@@ -525,7 +598,7 @@ cd server
 tests/integration/run_nginx_it.sh /usr/sbin/nginx       # path to the nginx executable. root not required
 ```
 
-Uses the bundled `deploy/nginx/clock-usage-relay.conf` as is, replacing only the addresses and certificate with test values. nginx connects from `127.0.0.3` to the relay (`127.0.0.2:18787`) to simulate a **separate server**. Results on 2026-11-15 (nginx 1.26.3, 11 passed):
+Uses the bundled `deploy/nginx/clock-usage-relay.conf` as is, replacing only the addresses and certificate with test values. nginx connects from `127.0.0.3` to the relay (`127.0.0.2:18787`) to simulate a **separate server**. Results on 2026-11-18 (nginx 1.26.3-3+deb13u7, 12 passed):
 
 | Check | Result |
 |---|---|
@@ -535,4 +608,5 @@ Uses the bundled `deploy/nginx/clock-usage-relay.conf` as is, replacing only the
 | relay 429 after 10 failures keyed on the real client address, even with a spoofed `X-Forwarded-For` | Pass |
 | Client address in the relay log is the real client address, not the nginx address | Pass |
 | 0 tokens in the nginx access log and the relay log | Pass |
-| 1 upstream call (cache) | Pass |
+| `?hourly=1` passes through nginx to the relay (24 values per item) | Pass |
+| 1 upstream call (sampler thread, independent of clock requests) | Pass |

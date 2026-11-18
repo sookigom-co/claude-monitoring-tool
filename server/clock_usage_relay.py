@@ -7,12 +7,15 @@ import json
 import logging
 import os
 import re
+import sqlite3
 import sys
 import tempfile
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
+from bisect import bisect_left
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -21,12 +24,12 @@ try:
 except ImportError:  # pragma: no cover
     ZoneInfo = None
 
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 
 DEFAULTS = {
     "RELAY_BIND": "127.0.0.1",
     "RELAY_PORT": "8787",
-    "RELAY_CACHE_SECONDS": "300",
+    "RELAY_SAMPLE_RETENTION_DAYS": "14",
     "RELAY_TZ": "Asia/Seoul",
     "RELAY_USAGE_URL": "https://api.anthropic.com/api/oauth/usage",
     "RELAY_TOKEN_URL": "https://platform.claude.com/v1/oauth/token",
@@ -41,6 +44,11 @@ DEFAULTS = {
     "RELAY_AUTH_WINDOW_SECONDS": "600",
     "RELAY_AUTH_LOCKOUT_SECONDS": "900",
 }
+
+DEFAULT_SAMPLE_SECONDS = 300
+DEFAULT_STATE_DIR = "/var/lib/clock-usage-relay"
+RESET_SHIFT_SECONDS = 3600
+HOURLY_BUCKETS = 24
 
 log = logging.getLogger("clock-usage-relay")
 
@@ -58,7 +66,11 @@ class Config:
         get = lambda k: env.get(k) or DEFAULTS.get(k)
         self.bind = get("RELAY_BIND")
         self.port = int(get("RELAY_PORT"))
-        self.cache_seconds = max(30, int(get("RELAY_CACHE_SECONDS")))
+        interval = env.get("RELAY_SAMPLE_SECONDS") or env.get("RELAY_CACHE_SECONDS") or DEFAULT_SAMPLE_SECONDS
+        self.sample_seconds = max(60, int(interval))
+        self.retention_days = max(2, int(get("RELAY_SAMPLE_RETENTION_DAYS")))
+        state_dir = (env.get("STATE_DIRECTORY") or DEFAULT_STATE_DIR).split(":")[0]
+        self.samples_db = env.get("RELAY_SAMPLES_DB") or os.path.join(state_dir, "samples.db")
         self.usage_url = get("RELAY_USAGE_URL")
         self.token_url = get("RELAY_TOKEN_URL")
         self.client_id = get("RELAY_OAUTH_CLIENT_ID")
@@ -276,6 +288,8 @@ def _parse_time(v):
         return datetime.fromtimestamp(v / 1000 if v > 1e11 else v, tz=timezone.utc)
     if not isinstance(v, str) or not v:
         return None
+    if re.fullmatch(r"\s*\d+(\.\d+)?\s*", v):
+        return _parse_time(float(v))
     s = v.strip().replace("Z", "+00:00")
     m = re.match(r"^(.*T\d{2}:\d{2}:\d{2})(\.\d+)?(.*)$", s)
     if m:
@@ -353,53 +367,233 @@ def build_items(data, tz):
     ]
 
 
-class UsageCache:
-    """Single-flight cache so upstream is called at most once per cache window."""
+ITEMS = (("Claude", "claude", extract_claude), ("Fable", "fable", extract_fable))
 
-    def __init__(self, cfg, client, clock=time.time):
+
+def _text(v):
+    return None if v is None else str(v)
+
+
+class SampleStore:
+    """sqlite table of usage samples, one row per successful upstream call."""
+
+    def __init__(self, path):
+        self.path = path
+        self._lock = threading.Lock()
+        self._db = None
+
+    def _conn(self):
+        if self._db is None:
+            os.makedirs(os.path.dirname(os.path.abspath(self.path)), mode=0o700, exist_ok=True)
+            os.close(os.open(self.path, os.O_RDWR | os.O_CREAT, 0o600))
+            os.chmod(self.path, 0o600)
+            db = sqlite3.connect(self.path, timeout=5, check_same_thread=False)
+            db.execute("PRAGMA temp_store=MEMORY")
+            db.execute("CREATE TABLE IF NOT EXISTS samples (ts INTEGER PRIMARY KEY, claude_pct REAL, "
+                       "claude_resets_at TEXT, fable_pct REAL, fable_resets_at TEXT, raw_ok INTEGER NOT NULL)")
+            db.commit()
+            self._db = db
+        return self._db
+
+    def _run(self, fn):
+        with self._lock:
+            try:
+                return fn(self._conn())
+            except Exception:
+                if self._db is not None:
+                    self._db.close()
+                    self._db = None
+                raise
+
+    def add(self, ts, windows, keep_seconds):
+        """Stores one sample of (claude, fable) windows and drops rows older than keep_seconds."""
+        claude, fable = (w or {} for w in windows)
+        row = (int(ts), claude.get("pct"), _text(claude.get("resets_at")),
+               fable.get("pct"), _text(fable.get("resets_at")), int(bool(claude or fable)))
+
+        def write(db):
+            with db:
+                db.execute("INSERT OR REPLACE INTO samples VALUES (?, ?, ?, ?, ?, ?)", row)
+                db.execute("DELETE FROM samples WHERE ts < ?", (int(ts - keep_seconds),))
+        self._run(write)
+
+    def latest(self):
+        rows = self._run(lambda db: db.execute("SELECT * FROM samples ORDER BY ts DESC LIMIT 1").fetchall())
+        return _row(rows[0]) if rows else None
+
+    def since(self, ts):
+        rows = self._run(lambda db: db.execute("SELECT * FROM samples WHERE ts >= ? ORDER BY ts",
+                                               (int(ts),)).fetchall())
+        return [_row(r) for r in rows]
+
+    def stats(self):
+        return self._run(lambda db: db.execute("SELECT COUNT(*), MAX(ts) FROM samples").fetchone())
+
+    def close(self):
+        with self._lock:
+            if self._db is not None:
+                self._db.close()
+                self._db = None
+
+
+def _row(r):
+    return dict(zip(("ts", "claude_pct", "claude_resets_at", "fable_pct", "fable_resets_at", "raw_ok"), r))
+
+
+def _reset_epoch(text):
+    t = _parse_time(text)
+    return t.timestamp() if t else None
+
+
+def increase(points, gap):
+    """Rise from the first to the last point with reset correction; None if no point sits within gap before a reset."""
+    total, base = 0.0, points[0]["pct"]
+    for prev, cur in zip(points, points[1:]):
+        old, new = _reset_epoch(prev["resets_at"]), _reset_epoch(cur["resets_at"])
+        if old is not None and new is not None and abs(new - old) >= RESET_SHIFT_SECONDS:
+            if old - prev["ts"] > gap:
+                return None
+            total += prev["pct"] - base
+            base = 0.0
+    return total + points[-1]["pct"] - base
+
+
+def window_delta(points, seconds, gap):
+    """Increase from the latest point back to the newest point at least `seconds` older, or None."""
+    if not points:
+        return None
+    target = points[-1]["ts"] - seconds
+    i = bisect_left([p["ts"] for p in points], target + 1) - 1
+    if i < 0 or points[i]["ts"] < target - gap:
+        return None
+    return increase(points[i:], gap)
+
+
+def hourly_deltas(points, now, tz, gap, hours=HOURLY_BUCKETS):
+    """Increase per completed local clock hour, oldest first; None where a bucket edge has no sample."""
+    top = datetime.fromtimestamp(now, tz).replace(minute=0, second=0, microsecond=0).timestamp()
+    stamps = [p["ts"] for p in points]
+
+    def last_in(k):
+        end = top - 3600 * k
+        i = bisect_left(stamps, end) - 1
+        return i if i >= 0 and stamps[i] >= end - 3600 else None
+
+    out = []
+    for k in range(hours - 1, -1, -1):
+        a, b = last_in(k + 1), last_in(k)
+        out.append(None if a is None or b is None else increase(points[a:b + 1], gap))
+    return out
+
+
+def _r1(v):
+    return None if v is None else round(v, 1) + 0.0
+
+
+class Sampler:
+    """Polls upstream on a fixed interval into SampleStore and renders clock responses from stored samples."""
+
+    def __init__(self, cfg, client, store, clock=time.time):
         self.cfg = cfg
         self.client = client
+        self.store = store
         self.clock = clock
         self._lock = threading.Lock()
+        self._stop = threading.Event()
         self.last_attempt = None
-        self.last_success = None
-        self.items = None
         self.error = None
 
-    def snapshot(self):
+    def tick(self):
+        """Samples upstream once if the interval has elapsed; returns True when it called upstream."""
         with self._lock:
             now = self.clock()
-            if self.last_attempt is None or now - self.last_attempt >= self.cfg.cache_seconds:
-                self.last_attempt = now
-                try:
-                    data = self.client.fetch_usage()
-                    self.items = build_items(data, self.cfg.tz)
-                    self.last_success = now
-                    self.error = None
-                except UpstreamError as e:
-                    self.error = e.code
-                    log.warning("upstream fetch failed: %s (status=%s)", e.code, e.status)
-                except Exception as e:
-                    self.error = "internal"
-                    log.error("unexpected fetch error: %s", mask(repr(e)))
-            return self._render()
+            if self.last_attempt is not None and now - self.last_attempt < self.cfg.sample_seconds:
+                return False
+            self.last_attempt = now
+            try:
+                data = self.client.fetch_usage()
+                windows = [extract(data) for _, _, extract in ITEMS]
+            except UpstreamError as e:
+                self.error = e.code
+                log.warning("upstream fetch failed: %s (status=%s)", e.code, e.status)
+                return True
+            except Exception as e:
+                self.error = "internal"
+                log.error("unexpected fetch error: %s", mask(repr(e)))
+                return True
+            try:
+                self.store.add(now, windows, self.cfg.retention_days * 86400)
+                self.error = None
+            except Exception as e:
+                self.error = "storage_error"
+                log.error("sample store failed (%s): %s", self.store.path, mask(repr(e)))
+            return True
 
-    def _render(self):
-        tz = self.cfg.tz
-        body = {
-            "updated": None,
-            "period": "7d",
-            "items": self.items or [
-                {"label": "Claude", "value": "n/a", "pct": None},
-                {"label": "Fable", "value": "n/a", "pct": None},
-            ],
-            "status": "ok",
-        }
-        if self.last_success is not None:
-            body["updated"] = datetime.fromtimestamp(self.last_success, tz=tz).isoformat(timespec="seconds")
-        if self.error:
-            body["status"] = "stale" if self.items else "error"
-            body["error"] = self.error
+    def run(self):
+        while not self._stop.is_set():
+            try:
+                self.tick()
+                wait = self.cfg.sample_seconds - (self.clock() - self.last_attempt)
+            except Exception as e:
+                log.error("sampler loop error: %s", mask(repr(e)))
+                wait = self.cfg.sample_seconds
+            self._stop.wait(min(max(1.0, wait), self.cfg.sample_seconds))
+
+    def start(self):
+        thread = threading.Thread(target=self.run, name="sampler", daemon=True)
+        thread.start()
+        return thread
+
+    def stop(self):
+        self._stop.set()
+
+    def health(self):
+        body = {"ok": True, "version": VERSION, "samples": None, "latest_sample": None}
+        try:
+            count, latest = self.store.stats()
+        except Exception as e:
+            log.error("sample store unreadable: %s", mask(repr(e)))
+            return body
+        body["samples"] = count
+        if latest is not None:
+            body["latest_sample"] = datetime.fromtimestamp(latest, tz=self.cfg.tz).isoformat(timespec="seconds")
+        return body
+
+    def snapshot(self, hourly=False):
+        now = self.clock()
+        gap = 2 * self.cfg.sample_seconds
+        error = self.error
+        try:
+            latest = self.store.latest()
+            history = self.store.since(now - (HOURLY_BUCKETS + 2) * 3600 - gap) if latest else []
+        except Exception as e:
+            log.error("sample store unreadable: %s", mask(repr(e)))
+            latest, history, error = None, [], "storage_error"
+        body = {"updated": None, "period": "7d", "status": "error", "version": VERSION, "sample_age_s": None}
+        items = []
+        for label, key, _ in ITEMS:
+            window = {"pct": latest[key + "_pct"], "resets_at": latest[key + "_resets_at"]} if latest else None
+            item = make_item(label, window, self.cfg.tz)
+            points = [{"ts": r["ts"], "pct": r[key + "_pct"], "resets_at": r[key + "_resets_at"]}
+                      for r in history if r[key + "_pct"] is not None]
+            if not (points and points[-1]["ts"] == latest["ts"]):
+                points = []
+            item["pct_raw"] = window["pct"] if window else None
+            item["delta_1h"] = _r1(window_delta(points, 3600, gap))
+            item["delta_24h"] = _r1(window_delta(points, 86400, gap))
+            if hourly:
+                item["hourly"] = [_r1(v) for v in hourly_deltas(points, now, self.cfg.tz, gap)]
+            items.append(item)
+        if latest:
+            age = max(0, int(now - latest["ts"]))
+            body["updated"] = datetime.fromtimestamp(latest["ts"], tz=self.cfg.tz).isoformat(timespec="seconds")
+            body["sample_age_s"] = age
+            body["status"] = "ok" if age <= gap else "stale"
+        elif not error:
+            error = "no_sample"
+        body["items"] = items
+        if error:
+            body["error"] = error
         return body
 
 
@@ -456,7 +650,7 @@ class AuthLimiter:
             del self._clients[next(iter(self._clients))]
 
 
-def make_handler(cfg, cache, limiter):
+def make_handler(cfg, sampler, limiter):
     expected = ("Bearer " + cfg.clock_token).encode()
 
     class Handler(BaseHTTPRequestHandler):
@@ -486,9 +680,9 @@ def make_handler(cfg, cache, limiter):
             self.wfile.write(raw)
 
         def do_GET(self):
-            path = self.path.split("?", 1)[0]
+            path, _, query = self.path.partition("?")
             if path == "/healthz":
-                return self._send(200, {"ok": True})
+                return self._send(200, sampler.health())
             if path != "/clock/usage":
                 return self._send(404, {"error": "not_found"})
             client = self.client_ip()
@@ -502,7 +696,8 @@ def make_handler(cfg, cache, limiter):
                                 client, cfg.auth_lockout, cfg.auth_max_failures)
                 return self._send(401, {"error": "unauthorized"})
             limiter.success(client)
-            self._send(200, cache.snapshot())
+            hourly = "1" in urllib.parse.parse_qs(query).get("hourly", [])
+            self._send(200, sampler.snapshot(hourly=hourly))
 
         def do_POST(self):
             self._send(405, {"error": "method_not_allowed"})
@@ -516,13 +711,12 @@ def make_handler(cfg, cache, limiter):
 
 
 def build_server(cfg):
-    store = CredentialStore(cfg.credentials_file)
-    cache = UsageCache(cfg, AnthropicClient(cfg, store))
+    sampler = Sampler(cfg, AnthropicClient(cfg, CredentialStore(cfg.credentials_file)), SampleStore(cfg.samples_db))
     limiter = AuthLimiter(cfg)
-    server = ThreadingHTTPServer((cfg.bind, cfg.port), make_handler(cfg, cache, limiter))
+    server = ThreadingHTTPServer((cfg.bind, cfg.port), make_handler(cfg, sampler, limiter))
     server.daemon_threads = True
     server.limiter = limiter
-    return server, cache
+    return server, sampler
 
 
 def proxy_config_warning(cfg):
@@ -543,8 +737,9 @@ def main():
     if proxy_config_warning(cfg):
         log.warning("listening on %s but RELAY_TRUSTED_PROXIES has only loopback; "
                     "add the nginx proxy address or every clock shares one lockout bucket", cfg.bind)
-    server, _ = build_server(cfg)
-    log.info("listening on %s:%d (cache %ds)", cfg.bind, cfg.port, cfg.cache_seconds)
+    server, sampler = build_server(cfg)
+    log.info("listening on %s:%d (sample every %ds into %s)", cfg.bind, cfg.port, cfg.sample_seconds, cfg.samples_db)
+    sampler.start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
