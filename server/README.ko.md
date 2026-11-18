@@ -21,9 +21,9 @@ Anthropic OAuth 토큰은 relay 서버 안에만 있습니다. 시계에는 사�
 |---|---|
 | 단위 시험 (`tests/test_relay.py`) | `CONFIRMED` — 60건 통과 (2026-11-18) |
 | nginx 연동 시험 (`tests/integration/run_nginx_it.sh`) | `CONFIRMED` — nginx 1.26.3(Debian 13 패키지 `1.26.3-3+deb13u7`) + 동봉 설정 파일로 12건 통과 (2026-11-18). 10.2절 |
-| 운영 서버 `python3` 에 `sqlite3` 모듈 있음 | `UNVERIFIED` — 8장 1단계에서 확인합니다 |
+| 운영 서버 `python3` 에 `sqlite3` 모듈 있음 | `CONFIRMED` — 운영 relay 서버에서 `sqlite3` 3.46.1 확인(2026-11-18, 1.3.0 업그레이드 시) |
 | 상위 `utilization` 에 소수점이 있음 | `UNVERIFIED` — relay 는 값을 소수 그대로 저장합니다. 응답의 `pct_raw` 로 확인합니다 |
-| 주간 한도가 고정 창이고 `resets_at` 에 0 으로 돌아감 | `SUSPECT` — 증가값 계산은 이 가정을 씁니다(2.1절). 원시 표본을 보존하므로 사후 검증이 가능합니다 |
+| 주간 한도가 고정 창이고 `resets_at` 에 0 으로 돌아감 | `CONFIRMED` (계정 소유자 진술, 2026-11-18) — 매주 일요일 15:00 KST(06:00 UTC)에 초기화됩니다. 증가값 계산은 이 전제를 씁니다(2.1절). 저장된 표본과의 대조는 아직 `UNVERIFIED` 입니다 |
 | 상위가 하루 288회 조회를 막지 않음 | `SUSPECT` — 3장 CAUTION |
 | 실제 Anthropic 응답 형식, Fable 행 유무 | `UNVERIFIED` — 설치 후 첫 호출에서 확인합니다(4.5절) |
 | 실제 도메인·Let's Encrypt 인증서로 시계 접속 | `UNVERIFIED` |

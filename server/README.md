@@ -21,9 +21,9 @@ The Anthropic OAuth token stays inside the relay server only. The clock receives
 |---|---|
 | Unit tests (`tests/test_relay.py`) | `CONFIRMED` — 60 passed (2026-11-18) |
 | nginx integration tests (`tests/integration/run_nginx_it.sh`) | `CONFIRMED` — 12 passed with nginx 1.26.3 (Debian 13 package `1.26.3-3+deb13u7`) + the bundled config file (2026-11-18). Section 10.2 |
-| `python3` on the production server has the `sqlite3` module | `UNVERIFIED` — checked in step 1 of Section 8 |
+| `python3` on the production server has the `sqlite3` module | `CONFIRMED` — `sqlite3` 3.46.1 on the production relay server (2026-11-18, upgrade to 1.3.0) |
 | Upstream `utilization` has decimals | `UNVERIFIED` — the relay stores the value as is. Check `pct_raw` in the response |
-| The weekly limit is a fixed window that drops to 0 at `resets_at` | `SUSPECT` — increase values assume this (Section 2.1). Raw samples are kept so it can be checked later |
+| The weekly limit is a fixed window that drops to 0 at `resets_at` | `CONFIRMED` (account owner's statement, 2026-11-18) — the limit resets every Sunday at 15:00 KST (06:00 UTC). Increase values assume this (Section 2.1). Checking it against the stored samples is still `UNVERIFIED` |
 | Upstream tolerates 288 queries per day | `SUSPECT` — CAUTION in Section 3 |
 | Actual Anthropic response format, presence of the Fable row | `UNVERIFIED` — check on the first call after installation (Section 4.5) |
 | Clock connecting via a real domain and Let's Encrypt certificate | `UNVERIFIED` |

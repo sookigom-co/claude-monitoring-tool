@@ -57,7 +57,7 @@ Installing the relay server and exposing it publicly (nginx) is covered in [`../
 | Screen shows nothing | Section 3.1 |
 | Build from source yourself | Section 2.1 |
 
-Prebuilt files are in GitHub Releases under `hardware-v0.5.0`. The previous builds remain under `hardware-v0.4.0`, `hardware-v0.3.0`, `hardware-v0.2.0` and `hardware-v0.1.3`.
+Prebuilt files are in GitHub Releases under `hardware-v0.5.0`. The previous builds remain under `hardware-v0.3.0`, `hardware-v0.2.0` and `hardware-v0.1.3`. 0.4.0 was never published as a Release; to get it, build commit `2b5a7b7` yourself (Section 2.1).
 
 | File | Purpose |
 |---|---|
@@ -407,13 +407,13 @@ All settings are kept (Wi-Fi, admin password, URL, token, check mode, time zone,
 
 - Design E needs relay 1.3.0 or later. Upgrade the relay first following `server/README.md` Section 8. With a 1.2.0 relay, design E shows empty charts (gray tracks only) and `1h -- · 24h --`; the other designs work as in 0.4.0.
 
-#### Rolling back (0.5.0 → 0.4.0)
+#### Rolling back (0.5.0 → 0.3.0)
 
-1. Upload `smartclock-0.4.0-firmware.bin` from Releases `hardware-v0.4.0` on the same `/update` page.
-2. All settings are kept. If design E was chosen, 0.4.0 does not know it and shows design C.
+1. Download `smartclock-0.3.0-firmware.bin` and `SHA256SUMS` from Releases `hardware-v0.3.0`, check them with the Section 2 command, and upload the file on the same `/update` page.
+2. All settings are kept. If design D or E was chosen, 0.3.0 does not know it and shows design C.
 
-- **If you save settings in 0.4.0 while E was chosen, `C` is written in its place.** If you then upgrade to 0.5.0 again, choose E again. If you did not save in 0.4.0, design E comes back.
-- To roll back to 0.3.0, upload `smartclock-0.3.0-firmware.bin` from Releases `hardware-v0.3.0` the same way. 0.3.0 shows C in place of D and E; if you save settings there, `C` is written in their place.
+- **If you save settings in 0.3.0 while D or E was chosen, `C` is written in its place.** If you then upgrade to 0.5.0 again, choose the design again. If you did not save in 0.3.0, the design comes back.
+- 0.4.0 has no Release. To roll back to 0.4.0, build commit `2b5a7b7` yourself (Section 2.1) and upload its `firmware.bin` the same way. 0.4.0 shows C in place of E; if you save settings there, `C` is written in its place.
 - To roll back to 0.2.0, upload `smartclock-0.2.0-firmware.bin` from Releases `hardware-v0.2.0` the same way. 0.2.0 also shows C in place of D and E, and the page returns to English only and the screen to Korean only. 0.2.0 does not read `lang`; **if you save settings in 0.2.0, the key is removed from the file** and the language returns to Korean after the next upgrade.
 
 ### 9.4 0.1.3 / 0.1.1 (LCD fix build) → 0.5.0

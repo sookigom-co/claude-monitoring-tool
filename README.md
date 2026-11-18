@@ -53,12 +53,13 @@ Binaries are published on GitHub Releases. The repository does not contain binar
 | Release | Files |
 |---|---|
 | `hardware-v0.5.0` (latest) | `smartclock-0.5.0-firmware.bin`, `lcd-diag-0.5.0-firmware.bin`, `SHA256SUMS` |
-| `hardware-v0.4.0` | `smartclock-0.4.0-firmware.bin`, `lcd-diag-0.4.0-firmware.bin`, `SHA256SUMS` (for rollback) |
 | `hardware-v0.3.0` | `smartclock-0.3.0-firmware.bin`, `lcd-diag-0.3.0-firmware.bin`, `SHA256SUMS` (for rollback) |
 | `hardware-v0.2.0` | `smartclock-0.2.0-firmware.bin`, `lcd-diag-0.2.0-firmware.bin`, `SHA256SUMS` (for rollback) |
 | `hardware-v0.1.3` | `smartclock-0.1.3-firmware.bin`, `lcd-diag-0.1.3-firmware.bin`, `SHA256SUMS` (for rollback) |
-| `server-v1.3.0` | `clock-usage-relay-1.3.0.tar.gz`, `SHA256SUMS` |
+| `server-v1.3.0` (latest) | `clock-usage-relay-1.3.0.tar.gz`, `SHA256SUMS` |
 | `server-v1.2.0` | `clock-usage-relay-1.2.0.tar.gz`, `SHA256SUMS` (for rollback) |
+
+Firmware 0.4.0 was never published as a Release. Design D, added in 0.4.0, is included in 0.5.0.
 
 ### Secrets
 
@@ -110,12 +111,13 @@ GitHub Releases 에 올립니다. 저장소에는 바이너리를 넣지 않습�
 | 릴리스 | 파일 |
 |---|---|
 | `hardware-v0.5.0` (최신) | `smartclock-0.5.0-firmware.bin`, `lcd-diag-0.5.0-firmware.bin`, `SHA256SUMS` |
-| `hardware-v0.4.0` | `smartclock-0.4.0-firmware.bin`, `lcd-diag-0.4.0-firmware.bin`, `SHA256SUMS` (되돌리기용) |
 | `hardware-v0.3.0` | `smartclock-0.3.0-firmware.bin`, `lcd-diag-0.3.0-firmware.bin`, `SHA256SUMS` (되돌리기용) |
 | `hardware-v0.2.0` | `smartclock-0.2.0-firmware.bin`, `lcd-diag-0.2.0-firmware.bin`, `SHA256SUMS` (되돌리기용) |
 | `hardware-v0.1.3` | `smartclock-0.1.3-firmware.bin`, `lcd-diag-0.1.3-firmware.bin`, `SHA256SUMS` (되돌리기용) |
-| `server-v1.3.0` | `clock-usage-relay-1.3.0.tar.gz`, `SHA256SUMS` |
+| `server-v1.3.0` (최신) | `clock-usage-relay-1.3.0.tar.gz`, `SHA256SUMS` |
 | `server-v1.2.0` | `clock-usage-relay-1.2.0.tar.gz`, `SHA256SUMS` (되돌리기용) |
+
+펌웨어 0.4.0 은 Release 로 공개하지 않았습니다. 0.4.0 에서 추가된 디자인 D 는 0.5.0 에 들어 있습니다.
 
 ### 비밀값
 
