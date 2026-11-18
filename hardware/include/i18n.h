@@ -15,6 +15,7 @@ static_assert(LANG_COUNT == 2, "every I18N list carries one column per language"
 // Clock screen text. Entries with a % are printf formats.
 #define SCREEN_TEXT(X)                                                    \
   X(SyncingTime, "Syncing time", "시간 동기화 중")                         \
+  X(Last7Days, "Last 7 days", "최근 7일 사용량")                           \
   X(ConnectingWifi, "Connecting Wi-Fi", "Wi-Fi 연결 중")                   \
   X(WifiLost, "Wi-Fi offline", "Wi-Fi 연결 끊김")                          \
   X(Resets, "Reset %s", "초기화 %s")                                      \

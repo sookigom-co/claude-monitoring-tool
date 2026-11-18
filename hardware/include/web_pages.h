@@ -60,15 +60,18 @@
   X(BrightLabel, "Brightness (0-100)", "밝기 (0~100)")                                                                \
   X(BrightHelp, "Backlight level in percent. 0 turns the backlight off.", "백라이트 밝기(%)입니다. 0이면 백라이트가 꺼집니다.") \
   X(LayoutLabel, "Screen design", "화면 디자인")                                                                      \
-  X(LayoutHelp, "Arrangement of the clock and the two usage gauges.", "시계와 사용량 게이지 2개의 배치입니다.")          \
+  X(LayoutHelp, "Arrangement of the clock and the two usage gauges. D shows usage only, without the clock.",          \
+    "시계와 사용량 게이지 2개의 배치입니다. D는 시계 없이 사용량만 보여 줍니다.")                                       \
   X(LayoutA, "A - concentric rings (Claude outside, Fable inside)", "A - 동심원 링 (바깥 Claude, 안쪽 Fable)")          \
   X(LayoutB, "B - clock on top, two gauges below", "B - 위에 시계, 아래에 게이지 2개")                                   \
   X(LayoutC, "C - left/right half rings (default)", "C - 좌우 반원 링 (기본값)")                                       \
+  X(LayoutD, "D - usage only, large numbers and bars (no clock)", "D - 사용량만, 큰 숫자와 막대 (시계 없음)")            \
   X(ModeLabel, "Design change", "디자인 전환")                                                                        \
-  X(ModeHelp, "Fixed keeps one design on screen. Cycle shows A, B and C in turn.",                                   \
-    "고정은 디자인 하나만 보여 주고, 순환은 A, B, C를 차례로 보여 줍니다.")                                            \
+  X(ModeHelp, "Fixed keeps one design on screen. Cycle shows A, B, C and D in turn.",                               \
+    "고정은 디자인 하나만 보여 주고, 순환은 A, B, C, D를 차례로 보여 줍니다.")                                         \
   X(ModeFixed, "Fixed - always show the design above", "고정 - 위에서 고른 디자인만 표시")                              \
-  X(ModeCycle, "Cycle - A, B, C in turn, starting from the design above", "순환 - 위에서 고른 디자인부터 A, B, C 차례로") \
+  X(ModeCycle, "Cycle - A, B, C, D in turn, starting from the design above",                                       \
+    "순환 - 위에서 고른 디자인부터 A, B, C, D 차례로")                                                                 \
   X(CycleLabel, "Cycle interval (seconds, 5-300)", "순환 간격 (초, 5~300)")                                            \
   X(CycleHelp, "How long each design stays on screen in cycle mode.", "순환 모드에서 디자인 하나를 보여 주는 시간입니다.") \
   X(AdminLegend, "Admin password (also OTA password)", "관리자 비밀번호 (OTA 비밀번호 겸용)")                            \
