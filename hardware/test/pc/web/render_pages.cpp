@@ -105,6 +105,22 @@ void layoutOptions(const std::string &dir) {
   }
 }
 
+void layoutOptionE(const std::string &dir) {
+  std::puts("layout options: A-E listed, design E selected");
+  Settings s;
+  s.layout = Layout::E;
+  UsageState u;
+  const web::DeviceStatus dev{"home-2.4G", -52, "192.168.0.31", 1794720420, 31544, 0};
+  for (Lang lang : {Lang::En, Lang::Ko}) {
+    render(dir, "admin-layout-e", lang, [&](Html &out) { web::adminPage(out, s, u, dev, "T"); });
+    for (const char *opt : {"<option value=A>", "<option value=B>", "<option value=C>", "<option value=D>"}) {
+      check(page.find(opt) != std::string::npos, std::string("unselected ") + opt);
+    }
+    check(page.find(std::string("<option value=E selected>") + web::text(lang, Txt::LayoutE)) != std::string::npos,
+          "E is listed and selected");
+  }
+}
+
 void escaping(const std::string &dir) {
   std::puts("escaping: settings and network names are HTML-escaped");
   Settings s;
@@ -130,6 +146,7 @@ int main(int argc, char **argv) {
   textTable();
   pages(argv[1]);
   layoutOptions(argv[1]);
+  layoutOptionE(argv[1]);
   escaping(argv[1]);
   std::printf("%d failures\n", failures);
   return failures ? 1 : 0;

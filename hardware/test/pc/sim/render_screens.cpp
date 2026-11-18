@@ -136,7 +136,7 @@ extern "C" void __wrap__ZN3Lcd8drawTextERK4Fontsss5AlignPKctt(Lcd *self, const F
 namespace {
 
 Lcd lcd;
-const char *const LAYOUT_NAMES[] = {"A", "B", "C", "D"};
+const char *const LAYOUT_NAMES[] = {"A", "B", "C", "D", "E"};
 static_assert(sizeof(LAYOUT_NAMES) / sizeof(LAYOUT_NAMES[0]) == LAYOUT_COUNT, "one name per layout");
 const Lang LANGS[] = {Lang::En, Lang::Ko};
 
@@ -173,20 +173,29 @@ bool writePpm(const std::string &path) {
   return true;
 }
 
-std::string relayJson(int claude, int fable, const char *status, const char *error) {
-  char buf[512];
-  auto item = [](const char *label, int pct, char *out, size_t n) {
+// extraA and extraB are appended inside the Claude and Fable items, e.g. the relay 1.3.0 increase fields.
+std::string relayJson(int claude, int fable, const char *status, const char *error, const char *extraA = "",
+                      const char *extraB = "", const char *resets = "11-18 09:00",
+                      const char *updated = "2026-11-15T14:25:00+09:00") {
+  char buf[1024];
+  auto item = [resets](const char *label, int pct, const char *extra, char *out, size_t n) {
     if (pct >= 0)
-      std::snprintf(out, n, R"({"label":"%s","value":"%d%%","pct":%d,"resets":"11-18 09:00"})", label, pct, pct);
-    else std::snprintf(out, n, R"({"label":"%s","value":"n/a","pct":null})", label);
+      std::snprintf(out, n, R"({"label":"%s","value":"%d%%","pct":%d,"resets":"%s"%s})", label, pct, pct, resets, extra);
+    else std::snprintf(out, n, R"({"label":"%s","value":"n/a","pct":null%s})", label, extra);
   };
-  char a[128], b[128];
-  item("Claude", claude, a, sizeof(a));
-  item("Fable", fable, b, sizeof(b));
-  std::snprintf(buf, sizeof(buf), R"({"updated":"2026-11-15T14:25:00+09:00","period":"7d","status":"%s",%s%s%s"items":[%s,%s]})",
+  char a[384], b[384];
+  item("Claude", claude, extraA, a, sizeof(a));
+  item("Fable", fable, extraB, b, sizeof(b));
+  std::snprintf(buf, sizeof(buf), R"({"updated":"%s","period":"7d","status":"%s",%s%s%s"items":[%s,%s]})", updated,
                 status, error ? R"("error":")" : "", error ? error : "", error ? "\"," : "", a, b);
   return buf;
 }
+
+// Relay 1.3.0 item fields with the values of the SOO-658 E mock-up.
+const char *const E_CLAUDE =
+    R"(,"delta_1h":1.4,"delta_24h":11.2,"hourly":[0.9,1.2,0.8,0.6,0.3,0.4,0.2,0,0,0,0,0,0,0,0,0,0,0,0.3,1.1,1.6,1.3,1.1,1.4])";
+const char *const E_FABLE =
+    R"(,"delta_1h":0.0,"delta_24h":2.0,"hourly":[0.2,0.3,0,0,0.1,0,0,0,0,0,0,0,0,0,0,0,0,0,null,0.4,0.3,0.4,0.3,0.0])";
 
 UsageState fromRelay(const std::string &json) {
   UsageState st;
@@ -212,13 +221,14 @@ struct Scenario {
 std::vector<Scenario> scenarios() {
   std::vector<Scenario> out;
   const TokenWarning none = TokenWarning::None;
-  out.push_back({"normal", true, true, none, fromRelay(relayJson(42, 55, "ok", nullptr))});
+  out.push_back({"normal", true, true, none, fromRelay(relayJson(42, 55, "ok", nullptr, E_CLAUDE, E_FABLE))});
   out.push_back({"pct70", true, true, none, fromRelay(relayJson(74, 78, "ok", nullptr))});
-  out.push_back({"pct90", true, true, none, fromRelay(relayJson(93, 97, "ok", nullptr))});
+  out.push_back({"pct90", true, true, none, fromRelay(relayJson(93, 97, "ok", nullptr, E_CLAUDE, E_FABLE))});
   UsageState failed;
   failed.lastAttemptMs = nowMs - 60000;
   out.push_back({"nodata", true, true, none, failed});
-  out.push_back({"relay-error", true, true, none, fromRelay(relayJson(42, 76, "error", "usage_http_5"))});
+  out.push_back({"relay-error", true, true, none,
+                 fromRelay(relayJson(42, 76, "error", "usage_http_5", E_CLAUDE, E_FABLE))});
   UsageState stale = fromRelay(relayJson(42, 55, "stale", "refresh_failed"));
   out.push_back({"relay-stale", true, true, none, stale});
   out.push_back({"warn-token", true, true, TokenWarning::Plaintext, fromRelay(relayJson(42, 55, "ok", nullptr))});
@@ -248,6 +258,44 @@ void renderAll(const std::string &dir) {
         check(writePpm(dir + "/" + name + ".ppm"), "write ppm");
       }
     }
+  }
+}
+
+// Design E with the values of the SOO-658 mock-up sheet, for a side-by-side comparison.
+void renderMockupE(const std::string &dir) {
+  std::puts("render: design E with the mock-up values");
+  const char *const nullC = R"(,"delta_1h":1.4,"delta_24h":null,"hourly":[null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,1.6,1.3,1.4])";
+  const char *const nullF = R"(,"delta_1h":null,"delta_24h":null,"hourly":[null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,0.4,0.3,0.0])";
+  const char *const resetC = R"(,"delta_1h":0.8,"delta_24h":9.6,"hourly":[0,0.2,0.4,0.8,1.0,1.3,0.9,0.6,0.4,0.2,0,0,0,0,0,0,0,0,0,0,0.3,0.9,1.4,1.2])";
+  const char *const resetF = R"(,"delta_1h":0.0,"delta_24h":1.2,"hourly":[0,0,0.1,0.2,0.3,0.1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0.2,0.3,0])";
+  const char *const highC = R"(,"delta_1h":4.8,"delta_24h":31.5,"hourly":[0.9,1.3,0.8,0.6,0.3,0.4,0.2,0,0,0,0,0,0,0,0,0,0,0,0.3,1.1,1.6,1.3,3.5,4.8])";
+  const char *const highF = R"(,"delta_1h":2.2,"delta_24h":12.0,"hourly":[0.2,0.2,0,0,0.2,0,0,0,0,0,0,0,0,0,0,0,0,0,null,0.4,0.3,0.4,0.3,0])";
+  const char *const enF = R"(,"delta_1h":null,"delta_24h":2.0,"hourly":[0.2,0.3,0,0,0.1,0,0,0,0,0,0,0,0,0,0,0,0,0,null,0.4,0.3,0.4,0.3,0.0])";
+  const struct {
+    const char *name;
+    Lang lang;
+    UsageState state;
+  } shots[] = {
+      {"normal", Lang::Ko, fromRelay(relayJson(42, 17, "ok", nullptr, E_CLAUDE, E_FABLE))},
+      {"null", Lang::Ko, fromRelay(relayJson(42, 17, "ok", nullptr, nullC, nullF))},
+      {"reset", Lang::Ko,
+       fromRelay(relayJson(1, 0, "ok", nullptr, resetC, resetF, "11-25 09:00", "2026-11-18T09:12:00+09:00"))},
+      {"relay-error", Lang::Ko, fromRelay(relayJson(-1, -1, "error", nullptr))},
+      {"relay-1.2.0", Lang::Ko, fromRelay(relayJson(42, 17, "ok", nullptr))},
+      {"pct90", Lang::Ko, fromRelay(relayJson(93, 76, "ok", nullptr, highC, highF))},
+      {"english", Lang::En, fromRelay(relayJson(42, 17, "ok", nullptr, E_CLAUDE, enF))},
+  };
+  ui::setLayout(Layout::E);
+  for (const auto &shot : shots) {
+    ui::setLang(shot.lang);
+    ui::invalidate();
+    clearMasks();
+    textOverflow = 0;
+    ui::draw(true, true, TokenWarning::None, shot.state, true);
+    std::printf("  mock-E-%-12s overlap %d px, overflow %d px\n", shot.name, overlapCount(), textOverflow);
+    check(overlapCount() == 0, "text and chart pixels overlap");
+    check(textOverflow == 0, "text wider than its box");
+    check(writePpm(dir + "/mock-E-" + shot.name + ".ppm"), "write ppm");
   }
 }
 
@@ -329,7 +377,7 @@ void partialRedraw() {
     UsageState changed = fromRelay(relayJson(47, 55, "ok", nullptr));
     const unsigned long usageChange = frame(changed);
     const unsigned long same = frame(changed);
-    const unsigned long minuteBox = layout == Layout::D ? 0 : timeBox;
+    const unsigned long minuteBox = layout == Layout::D || layout == Layout::E ? 0 : timeBox;
     std::printf("  %s: first %lu, 590 idle frames %lu, minute change %lu (time box %lu), Claude 42->47 %lu, repeat %lu, overlap %d\n",
                 LAYOUT_NAMES[l], first, idle, minute, minuteBox, usageChange, same, overlapCount());
     check(first >= 57600, "first frame paints the whole screen");
@@ -363,6 +411,37 @@ void rowTransitions() {
   for (int i = 0; i < W * H; i++) diff += partial[i] != fb[i];
   std::printf("  pixels differing from a fresh frame: %d\n", diff);
   check(diff == 0, "partial redraws leave no stale pixels");
+}
+
+// Partial redraws through value, no-sample, error and 1.2.0 responses must end on exactly the pixels of a fresh frame.
+void chartTransitions() {
+  std::puts("E chart and increase changes: partial redraws match a fresh frame");
+  ui::setLayout(Layout::E);
+  ui::invalidate();
+  UsageState failed;
+  failed.lastAttemptMs = nowMs - 60000;
+  const char *const big = R"(,"delta_1h":-0.3,"delta_24h":null,"hourly":[5.0,null,-0.4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0.1])";
+  const char *const shortRun = R"(,"delta_1h":0.2,"delta_24h":3.0,"hourly":[0.5,1.0])";
+  const UsageState steps[] = {fromRelay(relayJson(42, 17, "ok", nullptr, E_CLAUDE, E_FABLE)),
+                              fromRelay(relayJson(43, 17, "ok", nullptr, big, E_FABLE)),
+                              failed,
+                              fromRelay(relayJson(42, 17, "ok", nullptr)),
+                              fromRelay(relayJson(-1, -1, "error", "no_sample", E_CLAUDE, E_FABLE)),
+                              fromRelay(relayJson(44, 18, "ok", nullptr, shortRun, E_FABLE))};
+  for (const UsageState &st : steps) frame(st);
+  std::vector<uint16_t> partial(fb, fb + W * H);
+  ui::invalidate();
+  frame(steps[5]);
+  int diff = 0;
+  for (int i = 0; i < W * H; i++) diff += partial[i] != fb[i];
+  std::printf("  pixels differing from a fresh frame: %d\n", diff);
+  check(diff == 0, "partial redraws leave no stale pixels");
+  const unsigned long same = frame(steps[5]);
+  const unsigned long deltaOnly = frame(fromRelay(relayJson(44, 18, "ok", nullptr,
+                                                            R"(,"delta_1h":0.3,"delta_24h":3.0,"hourly":[0.5,1.0])", E_FABLE)));
+  std::printf("  repeat %lu px, Claude 1h +0.2%% -> +0.3%% %lu px\n", same, deltaOnly);
+  check(same == 0, "an unchanged frame sends nothing");
+  check(deltaOnly == static_cast<unsigned long>(204 * Lcd::lineHeight(FONT_XS)), "an increase change repaints only its line");
 }
 
 void layoutSwitch() {
@@ -410,9 +489,10 @@ void cycle() {
   check(c.active(s, 15999) == Layout::B, "no switch before the interval");
   check(c.active(s, 16000) == Layout::C, "switch after 15 s");
   check(c.active(s, 31000) == Layout::D, "C -> D");
-  check(c.active(s, 46000) == Layout::A, "wraps D -> A");
-  check(c.active(s, 61000) == Layout::B, "back to B after four intervals");
-  check(c.active(s, 61000 + 60000 * 3) == Layout::B, "skipped intervals are counted");
+  check(c.active(s, 46000) == Layout::E, "D -> E");
+  check(c.active(s, 61000) == Layout::A, "wraps E -> A");
+  check(c.active(s, 76000) == Layout::B, "back to B after five intervals");
+  check(c.active(s, 76000 + 75000 * 3) == Layout::B, "skipped intervals are counted");
   const uint32_t nearWrap = 0xFFFFF000UL;  // 4.1 s before millis() wraps to 0
   c.restart(nearWrap);
   check(c.active(s, static_cast<uint32_t>(nearWrap + 14000u)) == Layout::B, "no switch across the wrap before 15 s");
@@ -436,10 +516,12 @@ int main(int argc, char **argv) {
   ui::begin(lcd);
   renderAll(argv[1]);
   renderMockup(argv[1]);
+  renderMockupE(argv[1]);
   renderSetup(argv[1]);
   ui::setLang(Lang::Ko);
   partialRedraw();
   rowTransitions();
+  chartTransitions();
   layoutSwitch();
   langSwitch();
   cycle();

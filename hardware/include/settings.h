@@ -6,9 +6,9 @@ enum class TlsMode : uint8_t { Ca, Fingerprint, Insecure };
 
 enum class TokenWarning : uint8_t { None, NoCertCheck, Plaintext };
 
-// Screen designs (SOO-618, SOO-655): A concentric rings, B clock over gauges, C half rings, D usage-only bars.
-enum class Layout : uint8_t { A, B, C, D };
-constexpr uint8_t LAYOUT_COUNT = 4;
+// Screen designs (SOO-618, SOO-655, SOO-658): A rings, B clock over gauges, C half rings, D usage bars, E hourly charts.
+enum class Layout : uint8_t { A, B, C, D, E };
+constexpr uint8_t LAYOUT_COUNT = 5;
 
 enum class LayoutMode : uint8_t { Fixed, Cycle };
 
@@ -61,5 +61,7 @@ bool isHttps(const Settings &s);
 // True when the usage fetch validates against the built-in roots and so needs a synced clock.
 bool needsValidTime(const Settings &s);
 TokenWarning tokenWarning(const Settings &s);
+// True when design E can be on screen (chosen, or in the cycle), so the usage fetch asks for hourly values.
+bool showsHourly(const Settings &s);
 
 }  // namespace settings

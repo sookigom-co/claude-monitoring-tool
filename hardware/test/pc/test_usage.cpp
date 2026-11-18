@@ -351,9 +351,10 @@ static void caseDisplaySettings() {
   CHECK(!settings::validCycleSec(4) && settings::validCycleSec(5) && settings::validCycleSec(300) &&
         !settings::validCycleSec(301));
   Layout l;
-  CHECK(!settings::parseLayout(nullptr, l) && !settings::parseLayout("", l) && !settings::parseLayout("E", l));
+  CHECK(!settings::parseLayout(nullptr, l) && !settings::parseLayout("", l) && !settings::parseLayout("F", l));
   CHECK(settings::parseLayout("D", l) && l == Layout::D);
-  for (Layout layout : {Layout::A, Layout::B, Layout::C, Layout::D}) {
+  CHECK(settings::parseLayout("E", l) && l == Layout::E);
+  for (Layout layout : {Layout::A, Layout::B, Layout::C, Layout::D, Layout::E}) {
     for (LayoutMode mode : {LayoutMode::Fixed, LayoutMode::Cycle}) {
       Settings in;
       in.layout = layout;
@@ -383,10 +384,10 @@ static void caseLayoutDSettings() {
   }
   CHECK(loadSettings(R"({"layout":"D"})").layout == Layout::D);
   CHECK(loadSettings(R"({"layout":"D","layout_mode":"cycle"})").layoutMode == LayoutMode::Cycle);
-  for (const char *bad : {R"({"layout":"d"})", R"({"layout":"E"})", R"({"layout":"DD"})", R"({"layout":3})", R"({"layout":null})"}) {
+  for (const char *bad : {R"({"layout":"d"})", R"({"layout":"F"})", R"({"layout":"DD"})", R"({"layout":3})", R"({"layout":null})"}) {
     CHECK(loadSettings(bad).layout == Layout::C);
   }
-  CHECK(LAYOUT_COUNT == 4);
+  CHECK(LAYOUT_COUNT == 5);
   CHECK_STR(settings::layoutName(Layout::D), "D");
   Settings in;
   in.layout = Layout::D;
@@ -582,6 +583,137 @@ static void caseLayoutD() {
   CHECK(missing == 0);
 }
 
+// Builds a relay 1.3.0 response; hourly is appended to both items when given.
+static std::string relay130(const char *claudeExtra, const char *fableExtra) {
+  std::string j = R"({"updated":"2026-11-18T14:25:00+09:00","period":"7d","status":"ok","version":"1.3.0","sample_age_s":120,"items":[)";
+  j += R"({"label":"Claude","value":"42%","pct":42,"resets":"11-18 09:00","pct_raw":42.3)";
+  j += claudeExtra;
+  j += R"(},{"label":"Fable","value":"17%","pct":17,"resets":"11-18 09:00","pct_raw":17.0)";
+  j += fableExtra;
+  j += "}]}";
+  return j;
+}
+
+static void caseIncreases() {
+  std::puts("relay 1.3.0 increases: values, null, absent (1.2.0), non-numbers, text");
+  UsageState st;
+  CHECK(parseStr(relay130(R"(,"delta_1h":1.4,"delta_24h":11.2)", R"(,"delta_1h":0.0,"delta_24h":-0.3)").c_str(), st));
+  CHECK(st.items[0].delta1h == 14 && st.items[0].delta24h == 112);
+  CHECK(st.items[1].delta1h == 0 && st.items[1].delta24h == -3);
+  CHECK(!st.haveHourly);
+  CHECK(st.items[0].pct == 42);
+  CHECK(parseStr(relay130(R"(,"delta_1h":null,"delta_24h":2)", R"(,"delta_1h":0.1,"delta_24h":"x")").c_str(), st));
+  CHECK(st.items[0].delta1h == DELTA_NO_SAMPLE && st.items[0].delta24h == 20);
+  CHECK(st.items[1].delta1h == 1 && st.items[1].delta24h == DELTA_MISSING);
+  // 1.2.0 response: no increase fields at all.
+  CHECK(parseStr(R"({"updated":"2026-11-13T19:30:16+09:00","period":"7d","status":"ok","items":[
+      {"label":"Claude","value":"42%","pct":42,"resets":"11-18 09:00"},{"label":"Fable","value":"17%","pct":17}]})", st));
+  CHECK(st.items[0].delta1h == DELTA_MISSING && st.items[0].delta24h == DELTA_MISSING);
+  CHECK(st.items[1].delta1h == DELTA_MISSING && !st.haveHourly);
+  CHECK(st.items[0].pct == 42 && st.items[1].pct == 17);
+
+  char t[24];
+  const struct {
+    int16_t v;
+    Lang lang;
+    const char *want;
+  } texts[] = {{14, Lang::Ko, "+1.4%"},          {0, Lang::Ko, "+0.0%"},         {-3, Lang::Ko, "-0.3%"},
+               {-25, Lang::En, "-2.5%"},         {1000, Lang::En, "+100.0%"},    {DELTA_NO_SAMPLE, Lang::Ko, "표본 부족"},
+               {DELTA_NO_SAMPLE, Lang::En, "no data"}, {DELTA_MISSING, Lang::Ko, "--"}, {DELTA_MISSING, Lang::En, "--"}};
+  for (const auto &c : texts) {
+    usage::deltaText(c.v, c.lang, t, sizeof(t));
+    CHECK_STR(t, c.want);
+  }
+}
+
+static void caseHourly() {
+  std::puts("relay 1.3.0 hourly: 24 values, nulls, short and long arrays, not an array");
+  UsageState st;
+  CHECK(parseStr(relay130(R"(,"hourly":[0.9,1.2,null,0.6,0.3,0.4,0.2,0,0,0,0,0,0,0,0,0,0,0,0.3,1.1,1.6,1.3,-0.4,1.4])",
+                          R"(,"hourly":[null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null])")
+                     .c_str(),
+                 st));
+  CHECK(st.haveHourly);
+  CHECK(st.items[0].hourly[0] == 9 && st.items[0].hourly[2] == DELTA_NO_SAMPLE && st.items[0].hourly[7] == 0);
+  CHECK(st.items[0].hourly[22] == -4 && st.items[0].hourly[23] == 14);
+  CHECK(st.items[1].hourly[0] == DELTA_NO_SAMPLE && st.items[1].hourly[23] == DELTA_NO_SAMPLE);
+  // Fewer than 24 values end at the previous hour; the missing older hours have no sample.
+  CHECK(parseStr(relay130(R"(,"hourly":[0.5,1.0])", R"(,"hourly":[])").c_str(), st));
+  CHECK(st.haveHourly);
+  CHECK(st.items[0].hourly[21] == DELTA_NO_SAMPLE && st.items[0].hourly[22] == 5 && st.items[0].hourly[23] == 10);
+  for (uint8_t i = 0; i < HOURLY_SLOTS; i++) CHECK(st.items[1].hourly[i] == DELTA_NO_SAMPLE);
+  // More than 24 values keep the newest 24.
+  std::string many = R"(,"hourly":[9.9,9.9)";
+  for (int i = 1; i <= 24; i++) many += "," + std::to_string(i) + ".0";
+  many += "]";
+  CHECK(parseStr(relay130(many.c_str(), "").c_str(), st));
+  CHECK(st.items[0].hourly[0] == 10 && st.items[0].hourly[23] == 240);
+  // A non-array hourly or a non-number value is ignored rather than drawn.
+  CHECK(parseStr(relay130(R"(,"hourly":"x")", R"(,"hourly":[true,"a",0.2])").c_str(), st));
+  CHECK(st.items[0].hourly[23] == DELTA_NO_SAMPLE);
+  CHECK(st.items[1].hourly[21] == DELTA_NO_SAMPLE && st.items[1].hourly[22] == DELTA_NO_SAMPLE &&
+        st.items[1].hourly[23] == 2);
+  // A later response without hourly clears the flag.
+  CHECK(parseStr(relay130("", "").c_str(), st));
+  CHECK(!st.haveHourly && st.items[0].hourly[23] == DELTA_NO_SAMPLE);
+}
+
+static void caseHourlyBodyLimit() {
+  std::puts("relay 1.3.0 ?hourly=1 response against the 4,096-byte body limit");
+  std::string hourly = R"(,"delta_1h":-12.3,"delta_24h":-100.0,"hourly":[)";
+  for (int i = 0; i < 24; i++) hourly += i ? ",-100.0" : "-100.0";
+  hourly += "]";
+  std::string body = relay130(hourly.c_str(), hourly.c_str());
+  std::printf("    widest ?hourly=1 body %zu bytes (limit %zu)\n", body.size(), usage::MAX_BODY);
+  CHECK(body.size() < usage::MAX_BODY);
+  body.insert(body.size() - 1, usage::MAX_BODY - body.size(), ' ');
+  CHECK(body.size() == usage::MAX_BODY);
+  UsageState st;
+  CHECK(parseStr(body.c_str(), st));
+  CHECK(st.haveHourly && st.items[1].hourly[23] == -1000 && st.items[0].delta1h == -123);
+}
+
+static void caseShowsHourly() {
+  std::puts("hourly values are requested only when design E can be on screen");
+  Settings s;
+  CHECK(!settings::showsHourly(s));
+  for (Layout layout : {Layout::A, Layout::B, Layout::C, Layout::D}) {
+    s.layout = layout;
+    s.layoutMode = LayoutMode::Fixed;
+    CHECK(!settings::showsHourly(s));
+    s.layoutMode = LayoutMode::Cycle;
+    CHECK(settings::showsHourly(s));
+  }
+  s.layout = Layout::E;
+  s.layoutMode = LayoutMode::Fixed;
+  CHECK(settings::showsHourly(s));
+}
+
+static void caseLayoutE() {
+  std::puts("0.5.0 design E: glyph coverage and widths");
+  int missing = 0;
+  for (Lang lang : {Lang::En, Lang::Ko}) {
+    const int w = textWidth(FONT_XS, i18n::text(lang, Msg::Last24Hours), &missing);
+    std::printf("    header %-24s %3dpx (box 224)\n", i18n::text(lang, Msg::Last24Hours), w);
+    CHECK(w <= 224);
+  }
+  CHECK_STR(i18n::text(Lang::En, Msg::Last24Hours), "Last 24 hours");
+  CHECK_STR(i18n::text(Lang::Ko, Msg::Last24Hours), "최근 24시간 증가");
+  CHECK_STR(i18n::text(Lang::En, Msg::NoSample), "no data");
+  CHECK_STR(i18n::text(Lang::Ko, Msg::NoSample), "표본 부족");
+  // Name box 100px in FONT_M, percentage box 100px in FONT_P, increase line 204px in FONT_XS.
+  for (const char *name : {"Claude", "Fable"}) CHECK(textWidth(FONT_M, name, &missing) <= 100);
+  for (const char *n : {"0%", "100%", "--"}) CHECK(textWidth(FONT_P, n, &missing) <= 100);
+  const char *lines[] = {"1h 표본 부족 \xC2\xB7 24h 표본 부족", "1h no data \xC2\xB7 24h no data",
+                         "1h -100.0% \xC2\xB7 24h -100.0%", "1h +100.0% \xC2\xB7 24h +100.0%", "1h -- \xC2\xB7 24h --"};
+  for (const char *t : lines) {
+    const int w = textWidth(FONT_XS, t, &missing);
+    std::printf("    increases %-36s %3dpx (box 204)\n", t, w);
+    CHECK(w <= 204);
+  }
+  CHECK(missing == 0);
+}
+
 int main() {
   caseDraft();
   caseRejectsAndLimits();
@@ -600,6 +732,11 @@ int main() {
   caseEnglishHeader();
   caseEnglishLayout();
   caseLayoutD();
+  caseIncreases();
+  caseHourly();
+  caseHourlyBodyLimit();
+  caseShowsHourly();
+  caseLayoutE();
   std::printf("%d checks, %d failures\n", checks, failures);
   return failures ? 1 : 0;
 }

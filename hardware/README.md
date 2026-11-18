@@ -1,12 +1,12 @@
 **English** | [한국어](README.ko.md)
 
-# SmartClock firmware (hardware) — 0.4.0
+# SmartClock firmware (hardware) — 0.5.0
 
 Custom firmware for the SD Pro smart clock (ESP-12F / ESP8266, 4MB flash, ST7789 240×240 LCD). It was written from scratch and uses no code, fonts, or images from the stock firmware.
 
-- Screen: time (`HH:MM`), date (`Sun, Nov 15` in English, `11월 15일 일요일` in Korean), and two circular gauges for Claude and Fable weekly usage (NTP, default time zone `KST-9`). Design D shows the usage only, without time and date
+- Screen: time (`HH:MM`), date (`Sun, Nov 15` in English, `11월 15일 일요일` in Korean), and two circular gauges for Claude and Fable weekly usage (NTP, default time zone `KST-9`). Designs D and E show the usage only, without time and date
 - Display language: English or Korean (default Korean) for both the settings web page and the clock screen, with a short explanation under every setting (Section 8.3)
-- Four screen designs (A concentric rings / B clock on top + gauges below / C left and right semicircular rings / D usage only, large numbers and horizontal bars; default C). Fix one design or cycle through them automatically (Section 8.2)
+- Five screen designs (A concentric rings / B clock on top + gauges below / C left and right semicircular rings / D usage only, large numbers and horizontal bars / E usage only, hourly increase charts for the last 24 hours; default C). Fix one design or cycle through them automatically (Section 8.2)
 - Usage: draws the JSON provided by the relay server `server/`
 - Over-the-air update (OTA): web upload `/update` (Digest authentication + CSRF token) + ArduinoOTA (password required)
 - Settings web page: language, usage URL and token, HTTPS certificate check mode, time zone, brightness, screen design, admin password, Wi-Fi reset, factory reset
@@ -16,27 +16,29 @@ Installing the relay server and exposing it publicly (nginx) is covered in [`../
 
 ## 0. Versions
 
-> **CAUTION** — Version 0.1.1 is used as the version string by two different builds. 0.1.2 lacks the LCD alignment fix, so **on the real device it reboots repeatedly with `Exception (9)` right after boot** (confirmed from 0.1.0 device logs; 0.1.2 has the same code). Do not use 0.1.2; use 0.4.0 (or 0.1.3). The procedure for upgrading from 0.3.0 or 0.2.0 to 0.4.0 is in Section 9.3, and from 0.1.3 or 0.1.1 (LCD fix build) in Section 9.4.
+> **CAUTION** — Version 0.1.1 is used as the version string by two different builds. 0.1.2 lacks the LCD alignment fix, so **on the real device it reboots repeatedly with `Exception (9)` right after boot** (confirmed from 0.1.0 device logs; 0.1.2 has the same code). Do not use 0.1.2; use 0.5.0 (or 0.1.3). The procedure for upgrading from 0.4.0, 0.3.0 or 0.2.0 to 0.5.0 is in Section 9.3, and from 0.1.3 or 0.1.1 (LCD fix build) in Section 9.4.
 
-> **NOTE** — 0.4.0 has not yet been checked on the real device. 0.3.0 was checked only for designs B and C in Korean. Items marked `UNVERIFIED` in the Section 1 table will be checked after flashing the clock.
+> **NOTE** — 0.5.0 and 0.4.0 have not yet been checked on the real device. 0.3.0 was checked only for designs B and C in Korean. Items marked `UNVERIFIED` in the Section 1 table will be checked after flashing the clock.
 
 ## 1. Verification status
 
 | Item | Status |
 |---|---|
-| `pio run -e smartclock` build (0.4.0) | `CONFIRMED` — RAM 41.4% (33,880 B), Flash 60.5% (631,675 B), `firmware.bin` 635,824 B. Compared with 0.3.0: RAM +200 B, `firmware.bin` +2,016 B |
-| `pio run -e lcd-diag` build (0.4.0) | `CONFIRMED` — RAM 35.0% (28,640 B), Flash 31.4% (327,835 B), `firmware.bin` 331,984 B (same size as 0.3.0) |
-| PC tests (`test/pc/run.sh`) | `CONFIRMED` — 353 checks in 17 groups pass. JSON parsing, status text in both languages, screen layout widths in both languages (including every design D bottom line in its 224 px box), settings save and migration (design and language keys), check mode and token warning decisions |
-| Rendering and partial updates of the four screens (`test/pc/sim/run.sh`) | `CONFIRMED` (PC) — the SPI bytes actually sent by `lcd.cpp` and `ui.cpp` are received and drawn by a fake ST7789. 2 languages × 4 designs × 10 states = 80 images, 8 design D images with the mock-up values, and 6 setup/message screens, with 0 pixels of overlap between text boxes and rings or bars and 0 px of text wider than its box. 590 frames within the same minute transfer 0 px; a minute change transfers only the 6,450 px time box (A–C) or nothing (D); a design D value change transfers only that number and its bar (5,975 px); a design or language change triggers one full redraw |
-| Web pages (`test/pc/web/run.sh`) | `CONFIRMED` (PC) — the real `web_pages.cpp` writes the admin page, setup portal, update page and message pages in both languages as HTML files. Every text entry exists in both languages, input is HTML-escaped, the largest chunk is under 1.1 KB |
-| Auto-cycle timing (`include/layout_cycle.h`) | `CONFIRMED` (PC) — order A→B→C→D, interval, restart from the beginning on save, `millis()` 32-bit wraparound |
-| Settings migration (0.1.x / 0.2.0 / 0.3.0 → 0.4.0) | `CONFIRMED` (PC) — a 0.3.0-format `settings.json` (design `A`/`B`/`C`) is read unchanged. A 0.2.0 file keeps its values and the language starts as Korean (`ko`). A missing or invalid `lang` value also gives Korean, and an invalid `layout` value gives `C`. 0.1.x files additionally get the design defaults (`C`, `fixed`, 15 seconds) |
+| `pio run -e smartclock` build (0.5.0) | `CONFIRMED` — RAM 42.1% (34,460 B), Flash 61.0% (636,735 B), `firmware.bin` 640,880 B. Compared with 0.4.0: RAM +580 B, Flash +5,060 B, `firmware.bin` +5,056 B |
+| `pio run -e lcd-diag` build (0.5.0) | `CONFIRMED` — RAM 35.0% (28,640 B), Flash 31.6% (329,595 B), `firmware.bin` 333,744 B (+1,760 B compared with 0.4.0, from the 5 added Korean glyphs) |
+| PC tests (`test/pc/run.sh`) | `CONFIRMED` — 451 checks in 22 groups pass (0.4.0: 353 in 17). JSON parsing, status text in both languages, screen layout widths in both languages (including every design D bottom line in its 224 px box and the design E text widths), settings save and migration (design and language keys), check mode and token warning decisions. Added in 0.5.0: increase parsing (value, `null`, absent = 1.2.0 relay, not a number), increase text in both languages, `hourly` (24 values, `null`, short, long, not an array), the 4,096-byte body limit with `?hourly=1`, and when `hourly` is requested |
+| Rendering and partial updates of the five screens (`test/pc/sim/run.sh`) | `CONFIRMED` (PC) — the SPI bytes actually sent by `lcd.cpp` and `ui.cpp` are received and drawn by a fake ST7789. 2 languages × 5 designs × 10 states = 100 images, 8 design D mock-up images, 7 design E mock-up images, and 6 setup/message screens, with 0 pixels of overlap between text boxes and rings, bars or charts and 0 px of text wider than its box. The 7 design E images (normal, increase `null`, just after reset, server error, 1.2.0 relay, 90%+, English) are pixel-identical (0 differing pixels) to the SOO-658 mock-up approved by the board; the A–D images are pixel-identical to 0.4.0 (94 of 94 files). 590 frames within the same minute transfer 0 px; a minute change transfers only the 6,450 px time box (A–C) or nothing (D, E); a design D value change transfers only that number and its bar (5,975 px); in design E a percentage change transfers only that number (Claude 42→47: 1,700 px), an increase change only its line (204 × 16 = 3,264 px), and a chart only when its values or the shared scale change. Partial redraws through value / `no data` / error / 1.2.0 / short `hourly` end on exactly the pixels of a fresh frame (0 px difference); a design or language change triggers one full redraw (design E first frame: 91,040 px) |
+| Web pages (`test/pc/web/run.sh`) | `CONFIRMED` (PC) — the real `web_pages.cpp` writes the admin page, setup portal, update page and message pages in both languages as HTML files. Every text entry exists in both languages, input is HTML-escaped, the largest chunk is under 1.1 KB, designs A–E are listed and E can be selected |
+| Auto-cycle timing (`include/layout_cycle.h`) | `CONFIRMED` (PC) — order A→B→C→D→E, interval, restart from the beginning on save, `millis()` 32-bit wraparound |
+| Settings migration (0.1.x / 0.2.0 / 0.3.0 / 0.4.0 → 0.5.0) | `CONFIRMED` (PC) — a 0.4.0-format `settings.json` (design `A`–`D`) is read unchanged, and `E` is a valid value. A 0.2.0 file keeps its values and the language starts as Korean (`ko`). A missing or invalid `lang` value also gives Korean, and an invalid `layout` value gives `C`. 0.1.x files additionally get the design defaults (`C`, `fixed`, 15 seconds) |
 | LCD pin defaults (Section 3) | `CONFIRMED` — screen output on the board's real device (LCD fix build 0.1.1) on 2026-11-14 |
 | Serial flashing procedure (CP2102, macOS) | `CONFIRMED` — the board flashed using the same procedure on 2026-11-14 |
 | Built-in root certificates | `CONFIRMED` — `tools/gen_ca_roots.py` checks the SHA-256 fingerprints against fixed values. ISRG Root X1 `96bcec06…bddf08c6`, X2 `69729b8e…3ccb1470` |
 | 0.3.0 screen on the real device, designs B and C in Korean | `CONFIRMED` — photos in Section 8.2 (2026-11-16) |
 | 0.2.0/0.3.0 screen on the real device: design A, English text, arc drawing time | `UNVERIFIED` — requires the real device. One design change computes roughly 20,000–30,000 ring pixels in floating point |
 | 0.4.0 screen on the real device: design D (layout, bar drawing, colors) | `UNVERIFIED` — requires the real device. Checked on the PC only against the SOO-655 mock-up (Section 8.2) |
+| 0.5.0 screen on the real device: design E (layout, columns, colors) | `UNVERIFIED` — requires the real device. Checked on the PC only against the SOO-658 mock-up (Section 8.2) |
+| 0.5.0 fetch with `?hourly=1` from a relay 1.3.0 server, and the free heap after it | `UNVERIFIED` — requires the real device. PC estimate: parsing a `?hourly=1` response temporarily needs about 1.0–1.4 KB more heap (one more 1 KB ArduinoJson slot pool for the 48 hourly numbers plus about 0.2–0.4 KB more response body), released after parsing. The fixed RAM use is 580 B higher than 0.4.0. Check with the heap values in `/api/status` |
 | Chunked web page delivery on the real device | `UNVERIFIED` — requires the real device. Checked on the PC only (Section 8.3) |
 | Wi-Fi setup portal, NTP, usage fetch, both OTA methods | `UNVERIFIED` — no real-device results yet |
 | Connecting to a real Let's Encrypt server (nginx) with CA check | `UNVERIFIED` — requires a real domain |
@@ -47,20 +49,20 @@ Installing the relay server and exposing it publicly (nginx) is covered in [`../
 | Task | Where to read |
 |---|---|
 | First flash on a stock clock | Section 4 → Section 5 → Section 6 → Section 7 |
-| Upgrade a clock running 0.3.0 / 0.2.0 to 0.4.0 | Section 9.3 |
-| Upgrade a clock running 0.1.3 / 0.1.1 to 0.4.0 | Section 9.4 |
+| Upgrade a clock running 0.4.0 / 0.3.0 / 0.2.0 to 0.5.0 | Section 9.3 |
+| Upgrade a clock running 0.1.3 / 0.1.1 to 0.5.0 | Section 9.4 |
 | Change the screen design or set up auto-cycle | Section 8.2 |
 | Switch the language to English or Korean | Section 8.3 |
 | Connect the usage display | `server/README.md` Section 6 (clock settings) |
 | Screen shows nothing | Section 3.1 |
 | Build from source yourself | Section 2.1 |
 
-Prebuilt files are in GitHub Releases under `hardware-v0.4.0`. The previous builds remain under `hardware-v0.3.0`, `hardware-v0.2.0` and `hardware-v0.1.3`.
+Prebuilt files are in GitHub Releases under `hardware-v0.5.0`. The previous builds remain under `hardware-v0.4.0`, `hardware-v0.3.0`, `hardware-v0.2.0` and `hardware-v0.1.3`.
 
 | File | Purpose |
 |---|---|
-| `smartclock-0.4.0-firmware.bin` | Main firmware |
-| `lcd-diag-0.4.0-firmware.bin` | Screen pin diagnostics (no Wi-Fi) |
+| `smartclock-0.5.0-firmware.bin` | Main firmware |
+| `lcd-diag-0.5.0-firmware.bin` | Screen pin diagnostics (no Wi-Fi) |
 | `SHA256SUMS` | For verifying files |
 
 ```bash
@@ -75,7 +77,7 @@ python3 -m pip install platformio "esptool>=5"
 pio run -e smartclock             # → .pio/build/smartclock/firmware.bin
 pio run -e lcd-diag               # → .pio/build/lcd-diag/firmware.bin
 test/pc/run.sh                    # PC tests. Requires g++. Run after building smartclock once
-test/pc/sim/run.sh out/           # PC render of the four screens in both languages + partial update checks → out/*.ppm
+test/pc/sim/run.sh out/           # PC render of the five screens in both languages + partial update checks → out/*.ppm
 python3 test/pc/sim/make_sheet.py out/ png/   # ppm → png and comparison sheets (requires Pillow)
 test/pc/web/run.sh web/           # PC render of every web page in both languages → web/*.html
 python3 tools/gen_fonts.py        # Only when changing on-screen characters (output src/fonts_gen.cpp is already included)
@@ -109,7 +111,7 @@ The defaults are the values that produced a picture on the board's real device o
 
 ### 3.1 When the screen shows nothing — pin diagnostic build (`lcd-diag`)
 
-1. Flash `lcd-diag-0.4.0-firmware.bin` using the Section 6 procedure.
+1. Flash `lcd-diag-0.5.0-firmware.bin` using the Section 6 procedure.
 2. The diagnostic firmware runs through 16 pin candidate combinations × 2 SPI modes × 2 backlight polarities = **64 steps**, 4 seconds each (one full pass takes about 4 minutes 16 seconds).
 3. Write down the large number and the two lines below it (`DC0 RST2 CS-1 BL5`, `MODE3 BL-LOW RED`) for the step where the screen is visible. The same information is also printed on serial (115200bps).
 4. If the background color differs from the text (`RED`/`GREEN`/`BLUE`), invert `LCD_BGR`.
@@ -194,7 +196,7 @@ One line of garbled characters right after boot is normal (text printed by the E
 
 ```bash
 cd hardware
-tools/clean_flash.sh <port> smartclock-0.4.0-firmware.bin
+tools/clean_flash.sh <port> smartclock-0.5.0-firmware.bin
 ```
 
 - Runs chip check → full erase → write at `0x0` → read back 4MB → verify, in that order. At each step it asks you to "unplug and replug power with GPIO0 on GND, then press Enter".
@@ -207,9 +209,9 @@ tools/clean_flash.sh <port> smartclock-0.4.0-firmware.bin
 # Tie GPIO0 to GND and power on. Unplug and replug power between each command (keep GPIO0 on GND).
 esptool --chip esp8266 --port <port> --after no-reset chip-id
 esptool --chip esp8266 --port <port> --after no-reset erase-flash
-esptool --chip esp8266 --port <port> --after no-reset write-flash --flash-mode keep --flash-size keep 0x0 smartclock-0.4.0-firmware.bin
+esptool --chip esp8266 --port <port> --after no-reset write-flash --flash-mode keep --flash-size keep 0x0 smartclock-0.5.0-firmware.bin
 esptool --chip esp8266 --port <port> --after no-reset read-flash 0x0 0x400000 dump.bin
-python3 tools/verify_flash.py dump.bin smartclock-0.4.0-firmware.bin
+python3 tools/verify_flash.py dump.bin smartclock-0.5.0-firmware.bin
 ```
 
 - Do not flash a LittleFS image. The firmware creates it on first boot.
@@ -255,7 +257,7 @@ python3 tools/verify_flash.py dump.bin smartclock-0.4.0-firmware.bin
 | Refresh interval | Fetch interval in minutes, default 10. On failure, retries every 2 minutes |
 | POSIX time zone | Default `KST-9` |
 | Brightness | 0–100 (0 = backlight off) |
-| Screen design / Design change / Cycle interval | Screen design and auto-cycle (0.2.0; design D 0.4.0). Section 8.2 |
+| Screen design / Design change / Cycle interval | Screen design and auto-cycle (0.2.0; design D 0.4.0; design E 0.5.0). Section 8.2 |
 | Admin password | At least 8 characters. Changing it also changes the OTA password |
 | Reboot / Forget Wi-Fi / Factory reset | Restart / delete Wi-Fi only / delete Wi-Fi + all settings |
 
@@ -304,10 +306,16 @@ Real device running 0.3.0 with Korean display.
 
 0.4.0 design D drawn by the PC simulator (`test/pc/sim`, 2× enlarged). Not yet photographed on the real device.
 
+| Design E (Korean) | Design E (English) |
+|---|---|
+| ![Design E in Korean](docs/sim-design-e-ko.png) | ![Design E in English](docs/sim-design-e-en.png) |
+
+0.5.0 design E drawn by the PC simulator (`test/pc/sim`, 2× enlarged). Not yet photographed on the real device.
+
 | Item | Setting (`settings.json` key) | Default | Meaning |
 |---|---|---|---|
-| Screen design | `layout` = `A` / `B` / `C` / `D` | `C` | A concentric rings (outer Claude, inner Fable) / B clock on top + two 270° gauges below / C left and right semicircular rings (left Claude, right Fable) / D usage only: name and large number over a full-width bar, Claude on top, Fable below (0.4.0) |
-| Design change | `layout_mode` = `fixed` / `cycle` | `fixed` | `fixed` = keep the design above. `cycle` = cycle automatically in the order A→B→C→D, starting from the design above |
+| Screen design | `layout` = `A` / `B` / `C` / `D` / `E` | `C` | A concentric rings (outer Claude, inner Fable) / B clock on top + two 270° gauges below / C left and right semicircular rings (left Claude, right Fable) / D usage only: name and large number over a full-width bar, Claude on top, Fable below (0.4.0) / E usage only: hourly increase over the last 24 hours as column charts, Claude on top, Fable below (0.5.0, needs relay 1.3.0 or later) |
+| Design change | `layout_mode` = `fixed` / `cycle` | `fixed` | `fixed` = keep the design above. `cycle` = cycle automatically in the order A→B→C→D→E (E is followed by A), starting from the design above |
 | Cycle interval | `cycle_sec` = 5–300 | 15 | Auto-cycle interval (seconds). Values out of range are rejected on save |
 
 - When upgrading from 0.1.x, the three keys do not exist, so the clock starts with the defaults (`C`, `fixed`, 15 seconds). If the file contains invalid values, it also starts with the defaults.
@@ -315,20 +323,29 @@ Real device running 0.3.0 with Korean display.
 - `layout`, `layout_mode`, and `cycle_sec` are added to `/api/status`.
 - Gauge 1 = `items[0]` (Claude), gauge 2 = `items[1]` (Fable). A third item is not shown. Colors are the same as the 0.1.x bars (green below 70, yellow 70–89, red 90 and above). Each gauge shows its name (`label`) and a % number. If `pct` is `null` or there is no data, only the gray track is drawn and `--` is shown.
 - Design D (0.4.0) shows no time and no date. From the top: the title `Last 7 days` (`최근 7일 사용량`); Claude's name on the left and its number in large white digits on the right with a small gray `%`; a 204 × 8 px bar whose fill is `204 × pct / 100` px in the colors above; the same for Fable; the bottom line. The number is always white and only the bar carries the color. With no data, `--` is shown without `%` and only the gray track is drawn.
+- Design E (0.5.0) shows no time and no date. From the top: the title `Last 24 hours` (`최근 24시간 증가`); Claude's name on the left (bold, gray) and its current percentage such as `42%` on the right (bold white, small 22 px digits, not the large D digits); a 190 × 38 px chart of 24 columns (each 6 px wide with a 2 px gap); one line `1h +1.4% · 24h +11.2%`; the same for Fable; the bottom line.
+- Each column is one completed clock hour, oldest on the left. The rightmost column is the previous hour (viewed at 14:25, it is 13:00–14:00). An hour with no sample (`null`) shows only the gray track; an increase of zero or less shows a thin 2 px gray floor line; a positive increase is filled in blue from the bottom, `value × 38 / scale` px high and at least 2 px. Both charts share one scale: the larger of 2.0 percentage points and the biggest hourly value of either item.
+- Increase line: a number is shown with its sign and 1 decimal (`+1.4%`, `+0.0%`, `-0.3%`) in white. Negative values are shown as they are (the relay does not clip them). `null` from the relay (no comparison sample yet) is shown as `no data` (`표본 부족`) in gray, so it is distinct from 0. A missing field (relay 1.2.0), a relay `status:"error"` or no data at all shows `--` in gray. The `1h` / `24h` names and the `·` are gray.
+- Right after a weekly reset, `24h` can be larger than the current percentage (e.g. 1% now and `24h +9.6%`), because the relay adds the increase from before the reset. This is normal.
+- Design E needs relay 1.3.0 or later (`server/README.md` Section 8). With a 1.2.0 relay it shows the names and percentages, all columns as gray tracks only, and `1h -- · 24h --`.
+- On the settings page the option reads `E - usage only, hourly increase over the last 24 hours (no clock)` (`E - 사용량만, 최근 24시간 시간별 증가량 (시계 없음)`).
+
+> **NOTE** — The design E increase values are a trial display. Whether the weekly limit is a fixed window is still to be confirmed from 7 days of relay 1.3.0 samples (separate task). The screen itself has no marking for this.
+
 - The bottom line of the screen (for B, below the gauges) shows the first matching entry in the table below. If the width is insufficient, words are dropped from the end (e.g. in A, `Server error usage_http_5` → `Server error`).
 - The table shows the English screen text, with the Korean screen text in parentheses.
 
 | Priority | Situation | Display | Color |
 |---|---|---|---|
-| 0 | D only: time not yet set | `Waiting for time` (`시각 동기화 대기`), before Wi-Fi connects `Connecting Wi-Fi` (`Wi-Fi 연결 중`) | Orange |
+| 0 | D and E only: time not yet set | `Waiting for time` (`시각 동기화 대기`), before Wi-Fi connects `Connecting Wi-Fi` (`Wi-Fi 연결 중`) | Orange |
 | 1 | Wi-Fi disconnected (time is correct) | `Wi-Fi offline` (`Wi-Fi 연결 끊김`) | Orange |
-| 2 | Section 10 status text is a warning | `Failed` (`실패`), `Failed · Nh ago` (`실패 · N시간 전`), `Stale · as of HH:MM` (`지연 · HH:MM 기준`), `Server error …` (`서버 오류 …`). In D, `Stale` keeps the reset time in front: `Reset 11-18 09:00 · Stale · as of 14:25` (`초기화 11-18 09:00 · 지연 · 14:25 기준`) | Orange |
+| 2 | Section 10 status text is a warning | `Failed` (`실패`), `Failed · Nh ago` (`실패 · N시간 전`), `Stale · as of HH:MM` (`지연 · HH:MM 기준`), `Server error …` (`서버 오류 …`). In D and E, `Stale` keeps the reset time in front: `Reset 11-18 09:00 · Stale · as of 14:25` (`초기화 11-18 09:00 · 지연 · 14:25 기준`) | Orange |
 | 3 | Token exposure warning | `No cert check` (`인증서 검증 안 함`) / `Plaintext token` (`토큰 평문 전송`) | Orange |
-| 4 | `resets` present | A and C: `Reset 11-18 09:00` (`초기화 11-18 09:00`), B and D: `Reset 11-18 09:00 · as of 14:25` (`초기화 11-18 09:00 · 14:25 기준`) | Gray |
+| 4 | `resets` present | A and C: `Reset 11-18 09:00` (`초기화 11-18 09:00`), B, D and E: `Reset 11-18 09:00 · as of 14:25` (`초기화 11-18 09:00 · 14:25 기준`) | Gray |
 | 5 | Otherwise | Section 10 status text (`as of 14:25`, `Loading`, `No URL set`, etc.) | Gray |
 
-- If the time is not yet set, `--:--` is shown in place of the time and `Syncing time` (`시간 동기화 중`) in place of the date (`Connecting Wi-Fi` (`Wi-Fi 연결 중`) before Wi-Fi connects), in orange. Design D has no time or date and reports this on the bottom line (priority 0).
-- The screen redraws only the regions that changed. The time redraws only its box when the minute changes; a gauge redraws only its ring and number when its value changes. Design D redraws nothing when the minute changes; a value change redraws only that number and its bar, and the bottom line only when its text changes. The whole screen is cleared only when the design or language changes and when returning from a message screen.
+- If the time is not yet set, `--:--` is shown in place of the time and `Syncing time` (`시간 동기화 중`) in place of the date (`Connecting Wi-Fi` (`Wi-Fi 연결 중`) before Wi-Fi connects), in orange. Designs D and E have no time or date and report this on the bottom line (priority 0).
+- The screen redraws only the regions that changed. The time redraws only its box when the minute changes; a gauge redraws only its ring and number when its value changes. Design D redraws nothing when the minute changes; a value change redraws only that number and its bar, and the bottom line only when its text changes. Design E also redraws nothing when the minute changes; a percentage change redraws only that number, an increase change only its line, and a chart only when its values or the shared scale change. The whole screen is cleared only when the design or language changes and when returning from a message screen.
 
 ### 8.3 Display language (0.3.0)
 
@@ -349,6 +366,8 @@ One setting switches both the settings web page and the clock screen. Saving cha
 |---|---|---|
 | Date | `Sun, Nov 15` | `11월 15일 일요일` |
 | Design D title | `Last 7 days` | `최근 7일 사용량` |
+| Design E title | `Last 24 hours` | `최근 24시간 증가` |
+| Design E no sample | `no data` | `표본 부족` |
 | Date, before time sync | `Syncing time` / `Connecting Wi-Fi` | `시간 동기화 중` / `Wi-Fi 연결 중` |
 | Bottom line | Section 8.2 table | Section 8.2 table |
 | Data age | `5m ago`, `3h ago`, `2d ago` | `5분 전`, `3시간 전`, `2일 전` |
@@ -377,50 +396,53 @@ pio run -e smartclock-ota -t upload --upload-port smartclock-xxxx.local   # or t
 
 > **CAUTION** — If firmware uploaded via OTA fails to boot, recovery is possible only over serial (Section 6). Test builds with changed pins over serial first.
 
-### 9.3 0.3.0 / 0.2.0 → 0.4.0
+### 9.3 0.4.0 / 0.3.0 / 0.2.0 → 0.5.0
 
-All settings are kept (Wi-Fi, admin password, URL, token, check mode, time zone, brightness, screen design, language). The screen looks the same as before until you choose design D. A clock upgraded from 0.2.0 starts in Korean, because 0.2.0 has no language setting.
+All settings are kept (Wi-Fi, admin password, URL, token, check mode, time zone, brightness, screen design, language). The screen looks the same as before until you choose design E (or, from 0.3.0 / 0.2.0, design D). A clock upgraded from 0.2.0 starts in Korean, because 0.2.0 has no language setting.
 
-1. Download `smartclock-0.4.0-firmware.bin` and `SHA256SUMS` from Releases `hardware-v0.4.0` and check them with the Section 2 command. It must print `smartclock-0.4.0-firmware.bin: OK`.
-2. On the same Wi-Fi as the clock, log in to `http://<clock IP>/update` and upload `smartclock-0.4.0-firmware.bin`. After "Update complete" appears, the clock restarts.
-3. Check that `Firmware` (`펌웨어`) at the top of the settings page is `0.4.0`.
-4. To use design D, choose `D` under `Screen design` (`화면 디자인`) in the `Display` (`화면`) group and save. To include it in the auto-cycle, set `Design change` to `cycle`; D follows C. The screen switches at once.
+1. Download `smartclock-0.5.0-firmware.bin` and `SHA256SUMS` from Releases `hardware-v0.5.0` and check them with the Section 2 command. It must print `smartclock-0.5.0-firmware.bin: OK`.
+2. On the same Wi-Fi as the clock, log in to `http://<clock IP>/update` and upload `smartclock-0.5.0-firmware.bin`. After "Update complete" appears, the clock restarts.
+3. Check that `Firmware` (`펌웨어`) at the top of the settings page is `0.5.0`.
+4. To use design E, choose `E` under `Screen design` (`화면 디자인`) in the `Display` (`화면`) group and save. To include it in the auto-cycle, set `Design change` to `cycle`; E follows D. The screen switches at once.
 
-#### Rolling back (0.4.0 → 0.3.0)
+- Design E needs relay 1.3.0 or later. Upgrade the relay first following `server/README.md` Section 8. With a 1.2.0 relay, design E shows empty charts (gray tracks only) and `1h -- · 24h --`; the other designs work as in 0.4.0.
 
-1. Upload `smartclock-0.3.0-firmware.bin` from Releases `hardware-v0.3.0` on the same `/update` page.
-2. All settings are kept. If design D was chosen, 0.3.0 does not know it and shows design C.
+#### Rolling back (0.5.0 → 0.4.0)
 
-- **If you save settings in 0.3.0 while D was chosen, `C` is written in its place.** If you then upgrade to 0.4.0 again, choose D again. If you did not save in 0.3.0, design D comes back.
-- To roll back to 0.2.0, upload `smartclock-0.2.0-firmware.bin` from Releases `hardware-v0.2.0` the same way. 0.2.0 also shows C in place of D, and the page returns to English only and the screen to Korean only. 0.2.0 does not read `lang`; **if you save settings in 0.2.0, the key is removed from the file** and the language returns to Korean after the next upgrade.
+1. Upload `smartclock-0.4.0-firmware.bin` from Releases `hardware-v0.4.0` on the same `/update` page.
+2. All settings are kept. If design E was chosen, 0.4.0 does not know it and shows design C.
 
-### 9.4 0.1.3 / 0.1.1 (LCD fix build) → 0.4.0
+- **If you save settings in 0.4.0 while E was chosen, `C` is written in its place.** If you then upgrade to 0.5.0 again, choose E again. If you did not save in 0.4.0, design E comes back.
+- To roll back to 0.3.0, upload `smartclock-0.3.0-firmware.bin` from Releases `hardware-v0.3.0` the same way. 0.3.0 shows C in place of D and E; if you save settings there, `C` is written in their place.
+- To roll back to 0.2.0, upload `smartclock-0.2.0-firmware.bin` from Releases `hardware-v0.2.0` the same way. 0.2.0 also shows C in place of D and E, and the page returns to English only and the screen to Korean only. 0.2.0 does not read `lang`; **if you save settings in 0.2.0, the key is removed from the file** and the language returns to Korean after the next upgrade.
+
+### 9.4 0.1.3 / 0.1.1 (LCD fix build) → 0.5.0
 
 Wi-Fi, admin password, URL, token, check mode, time zone, and brightness settings are kept. Screen design settings start at the defaults (`C`, `fixed`, 15 seconds) and the language at Korean.
 
-1. Download `smartclock-0.4.0-firmware.bin` and `SHA256SUMS` from Releases `hardware-v0.4.0` and check them with the Section 2 command. It must print `smartclock-0.4.0-firmware.bin: OK`.
-2. On the same Wi-Fi as the clock, log in to `http://<clock IP>/update` and upload `smartclock-0.4.0-firmware.bin`. After "Update complete" appears, the clock restarts.
+1. Download `smartclock-0.5.0-firmware.bin` and `SHA256SUMS` from Releases `hardware-v0.5.0` and check them with the Section 2 command. It must print `smartclock-0.5.0-firmware.bin: OK`.
+2. On the same Wi-Fi as the clock, log in to `http://<clock IP>/update` and upload `smartclock-0.5.0-firmware.bin`. After "Update complete" appears, the clock restarts.
 3. After the restart, check that the screen shows design C (left and right semicircular rings).
-4. Check that `Firmware` (`펌웨어`) at the top of the settings page is `0.4.0`.
+4. Check that `Firmware` (`펌웨어`) at the top of the settings page is `0.5.0`.
 5. If needed, choose the language (Section 8.3) and the design and auto-cycle in the `Display` (`화면`) group, then save (Section 8.2).
 
 When upgrading directly from 0.1.1 (LCD fix build), the check mode is set automatically from the existing settings. When upgrading from 0.1.3, the 0.1.3 check mode is kept as is.
 
-| 0.1.1 setting | 0.4.0 check mode |
+| 0.1.1 setting | 0.5.0 check mode |
 |---|---|
 | Fingerprint entered | `fingerprint` |
 | Fingerprint empty (0.1.1 did no check in this case) | `CA` |
 
-> **CAUTION** — If in 0.1.1 the fingerprint was empty and the clock was connected to an HTTPS server that does not use Let's Encrypt, 0.4.0 switches to `CA` mode and fetching fails (`connection failed (TLS …)`). Enter a fingerprint or switch the nginx certificate to Let's Encrypt. `http://` addresses are not affected.
+> **CAUTION** — If in 0.1.1 the fingerprint was empty and the clock was connected to an HTTPS server that does not use Let's Encrypt, 0.5.0 switches to `CA` mode and fetching fails (`connection failed (TLS …)`). Enter a fingerprint or switch the nginx certificate to Let's Encrypt. `http://` addresses are not affected.
 
 - To connect the usage display for the first time, enter the URL, token, and `CA` following `server/README.md` Section 6.
 
-#### Rolling back (0.4.0 → 0.1.3)
+#### Rolling back (0.5.0 → 0.1.3)
 
 1. Upload `smartclock-0.1.3-firmware.bin` from Releases `hardware-v0.1.3` on the same `/update` page.
 2. Wi-Fi, password, URL, token, and check mode are kept. The screen returns to the 0.1.3 bar display.
 
-- 0.1.3 does not read the design and language keys (`layout`, `layout_mode`, `cycle_sec`, `lang`). **If you save settings in 0.1.3, these keys are removed from the file.** If you then upgrade to 0.4.0 again, the design returns to the defaults (`C`, `fixed`, 15 seconds) and the language to Korean. If you did not save in 0.1.3, the previous design settings come back intact.
+- 0.1.3 does not read the design and language keys (`layout`, `layout_mode`, `cycle_sec`, `lang`). **If you save settings in 0.1.3, these keys are removed from the file.** If you then upgrade to 0.5.0 again, the design returns to the defaults (`C`, `fixed`, 15 seconds) and the language to Korean. If you did not save in 0.1.3, the previous design settings come back intact.
 - Do not roll back to 0.1.2 (Section 0 CAUTION).
 
 ## 10. Usage JSON contract
@@ -429,6 +451,8 @@ The authoritative contract is Section 2 of [`../server/README.md`](../server/REA
 
 The request header is `Accept: application/json`, plus `Authorization: Bearer <token>` if a token is set. The body must be 4,096 bytes or less, and **redirects are not followed.** Anything other than HTTP 200 is a fetch failure.
 
+From 0.5.0 the clock adds `?hourly=1` to the usage URL (`&hourly=1` if the URL already contains `?`) **only when design E can be on screen**: design E chosen with `fixed`, or `Design change` set to `cycle` (E is part of the rotation). Otherwise the request is the same as in 0.4.0. `delta_1h` / `delta_24h` are in every relay 1.3.0 response and are always parsed. The widest possible `?hourly=1` response measured on the PC is 703 bytes, well within the 4,096-byte limit (a 4,096-byte body still parses).
+
 | Field | Firmware handling |
 |---|---|
 | `items` | Required. 0.2.0 and later show the first 2 as gauges (`items[0]` Claude, `items[1]` Fable). Items from the 3rd onward are not shown |
@@ -436,6 +460,9 @@ The request header is `Accept: application/json`, plus `Authorization: Bearer <t
 | `items[].value` | Not shown on the 0.2.0 and later screens. The gauge number uses `pct` |
 | `items[].pct` | If a number: gauge and `N%` (green below 70, yellow 70–89, red 90 and above). If `null`: gray track and `--` |
 | `items[].resets` | If `MM-DD HH:MM`, the bottom line shows `Reset 11-18 09:00` (`초기화 11-18 09:00`) (Section 8.2 priority table) |
+| `items[].delta_1h` / `items[].delta_24h` | Design E increase line (0.5.0). A number is shown as `+1.4%`; `null` is shown as `no data` (`표본 부족`); absent (relay 1.2.0) or not a number is shown as `--` |
+| `items[].hourly` | Design E chart (0.5.0). Up to 24 values, right-aligned so the last value is always the previous hour. Fewer than 24: the missing older hours count as no sample. More than 24: the newest 24 are kept. Non-number entries count as no sample. Not an array: treated as absent |
+| `version`, `sample_age_s`, `items[].pct_raw` | Ignored (relay 1.3.0 fields) |
 | `updated` | Status text `as of HH:MM` (`HH:MM 기준`). If `null`, `Nm ago` (`N분 전`) |
 | `status` / `error` | See the status text table below |
 
@@ -457,7 +484,7 @@ Status text (the first matching row from the top). 0.1.x shows it on the right o
 
 | Symptom | Cause / action |
 |---|---|
-| Repeated `Exception (9)` right after boot, no picture | This is 0.1.0 or 0.1.2. Flash 0.4.0 (or 0.1.3) over serial |
+| Repeated `Exception (9)` right after boot, no picture | This is 0.1.0 or 0.1.2. Flash 0.5.0 (or 0.1.3) over serial |
 | `Failed to connect` (esptool) | See the end of Section 5. Swap TX/RX, GPIO0–GND, power-cycle |
 | Settings page shows `failed: HTTP 401` (`실패: HTTP 401`) | Token mismatch |
 | `failed: HTTP 429` | The relay server blocked for 15 minutes after repeated wrong tokens, or the nginx request rate limit. `server/README.md` Section 7 |
@@ -469,10 +496,12 @@ Status text (the first matching row from the top). 0.1.x shows it on the right o
 | Screen design changes by itself | `Design change` is set to `cycle`. Change it to `fixed` and save (Section 8.2) |
 | `Cycle interval must be 5-300 seconds.` (`순환 간격은 5~300초여야 합니다.`) when saving settings | The cycle interval accepts only 5–300 seconds |
 | Fable gauge stays gray with `--` | The relay server sends `items[1].pct` as `null`. This happens when the account has no Fable weekly limit row (`server/README.md` Section 1.4) |
-| After rolling back to 0.1.3 and reinstalling 0.4.0, the design reverted to C | Saving settings in 0.1.3 erases the design settings (Section 9.4, Rolling back). Choose the design again and save |
-| After rolling back to 0.3.0 and reinstalling 0.4.0, design D became C | Saving settings in 0.3.0 writes `C` in place of `D` (Section 9.3, Rolling back). Choose D again and save |
-| Screen or page is in the wrong language | Choose the language in the `Language / 언어` group at the top of the settings page and save (Section 8.3). After a rollback to 0.2.0 and a save there, 0.4.0 starts in Korean again |
-| After uploading, `Firmware` is not 0.4.0 | The upload was interrupted before it finished. Upload the same file again. If the clock does not boot, use Section 6 (serial) |
+| Design E shows only gray columns and `1h -- · 24h --` | The relay is 1.2.0 or older. Upgrade the relay to 1.3.0 (`server/README.md` Section 8) |
+| `no data` (`표본 부족`) stays for hours in design E | Normal right after the relay upgrade: `1h` needs 1 hour and `24h` needs 24 hours of samples |
+| After rolling back to 0.1.3 and reinstalling 0.5.0, the design reverted to C | Saving settings in 0.1.3 erases the design settings (Section 9.4, Rolling back). Choose the design again and save |
+| After rolling back to 0.4.0 or 0.3.0 and reinstalling 0.5.0, design D or E became C | Saving settings in an older version writes `C` in place of a design it does not know (0.4.0: `E`; 0.3.0: `D` and `E`) (Section 9.3, Rolling back). Choose the design again and save |
+| Screen or page is in the wrong language | Choose the language in the `Language / 언어` group at the top of the settings page and save (Section 8.3). After a rollback to 0.2.0 and a save there, 0.5.0 starts in Korean again |
+| After uploading, `Firmware` is not 0.5.0 | The upload was interrupted before it finished. Upload the same file again. If the clock does not boot, use Section 6 (serial) |
 
 ## 12. File layout
 
@@ -481,7 +510,7 @@ Status text (the first matching row from the top). 0.1.x shows it on the right o
 | `platformio.ini` | 3 envs: `smartclock`, `smartclock-ota`, `lcd-diag` |
 | `src/main.cpp` | Boot sequence, Wi-Fi, NTP, ArduinoOTA, main loop |
 | `src/lcd.cpp` | ST7789 driver, font renderer, anti-aliased arcs (`drawRing`) and round-ended bars (`drawBar`) |
-| `src/ui.cpp` | Layout of screen designs A, B, C, D and partial updates |
+| `src/ui.cpp` | Layout of screen designs A, B, C, D, E and partial updates |
 | `include/i18n.h` / `src/i18n.cpp` | Clock screen text in English and Korean |
 | `include/layout_cycle.h` | Fixed/auto-cycle design selection |
 | `src/web.cpp` | Setup portal, admin page, `/update` request handling |
@@ -499,3 +528,4 @@ Status text (the first matching row from the top). 0.1.x shows it on the right o
 | `docs/wiring.png` | Wiring location photo for the first serial flash (Section 4.2) |
 | `docs/photo-design-b.jpg`, `docs/photo-design-c.jpg` | Real device photos of designs B and C (Section 8.2) |
 | `docs/sim-design-d-ko.png`, `docs/sim-design-d-en.png` | PC simulator renders of design D (Section 8.2) |
+| `docs/sim-design-e-ko.png`, `docs/sim-design-e-en.png` | PC simulator renders of design E (Section 8.2) |

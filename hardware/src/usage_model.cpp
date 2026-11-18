@@ -39,6 +39,32 @@ void copyPrintable(const char *src, char *dst, size_t n) {
   dst[j] = '\0';
 }
 
+// Reads an increase field: a number in tenths, DELTA_NO_SAMPLE for null, DELTA_MISSING when absent or not a number.
+int16_t readDelta(JsonVariantConst v) {
+  if (v.isUnbound()) return DELTA_MISSING;
+  if (v.isNull()) return DELTA_NO_SAMPLE;
+  if (!v.is<float>() && !v.is<int>()) return DELTA_MISSING;
+  const float tenths = constrain(v.as<float>() * 10, static_cast<float>(DELTA_NO_SAMPLE + 1), static_cast<float>(INT16_MAX));
+  return static_cast<int16_t>(lroundf(tenths));
+}
+
+// Fills hourly right-aligned so a short array still ends at the previous hour; returns false when there is none.
+bool readHourly(JsonVariantConst v, int16_t *out) {
+  for (uint8_t i = 0; i < HOURLY_SLOTS; i++) out[i] = DELTA_NO_SAMPLE;
+  JsonArrayConst arr = v.as<JsonArrayConst>();
+  if (arr.isNull()) return false;
+  const size_t n = arr.size();
+  const size_t skip = n > HOURLY_SLOTS ? n - HOURLY_SLOTS : 0;
+  uint8_t slot = static_cast<uint8_t>(HOURLY_SLOTS - (n - skip));
+  size_t i = 0;
+  for (JsonVariantConst value : arr) {
+    if (i++ < skip) continue;
+    const int16_t d = readDelta(value);
+    out[slot++] = d == DELTA_MISSING ? DELTA_NO_SAMPLE : d;
+  }
+  return true;
+}
+
 void formatAge(uint32_t ms, Lang lang, char *out, size_t n) {
   const unsigned long min = ms / 60000;
   if (min < 60) snprintf_P(out, n, i18n::text(lang, Msg::MinutesAgo), min);
@@ -58,6 +84,7 @@ bool parse(const char *json, size_t len, UsageState &out) {
   out.relayStatus = toRelayStatus(doc["status"].as<const char *>());
   copyPrintable(doc["error"].as<const char *>(), out.relayError, sizeof(out.relayError));
   out.count = 0;
+  out.haveHourly = false;
   for (JsonObjectConst item : items) {
     if (out.count >= UsageState::MAX_ITEMS) break;
     UsageItem &dst = out.items[out.count++];
@@ -71,8 +98,22 @@ bool parse(const char *json, size_t len, UsageState &out) {
       dst.pct = -1;
     }
     copyResets(item["resets"], dst.resets, sizeof(dst.resets));
+    dst.delta1h = readDelta(item["delta_1h"]);
+    dst.delta24h = readDelta(item["delta_24h"]);
+    if (readHourly(item["hourly"], dst.hourly)) out.haveHourly = true;
   }
   return true;
+}
+
+void deltaText(int16_t tenths, Lang lang, char *out, size_t n) {
+  if (tenths == DELTA_MISSING) {
+    strlcpy(out, "--", n);
+  } else if (tenths == DELTA_NO_SAMPLE) {
+    i18n::copy(lang, Msg::NoSample, out, n);
+  } else {
+    const unsigned mag = static_cast<unsigned>(tenths < 0 ? -tenths : tenths);
+    snprintf(out, n, "%c%u.%u%%", tenths < 0 ? '-' : '+', mag / 10, mag % 10);
+  }
 }
 
 bool headerText(const UsageState &state, bool configured, uint32_t nowMs, Lang lang, char *out, size_t n) {

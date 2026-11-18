@@ -75,7 +75,7 @@ void serviceUsage() {
   usageState.waitingForTime = settings::needsValidTime(cfg) && time(nullptr) < usage::VALID_EPOCH;
   if (usageState.waitingForTime) return;
   fetchRequested = false;
-  bool ok = usage::fetch(cfg, usageState);
+  bool ok = usage::fetch(cfg, usageState, settings::showsHourly(cfg));
   Serial.printf("usage fetch: %s %s\n", ok ? "ok" : "failed", usageState.lastError.c_str());
 }
 
