@@ -22,14 +22,14 @@ Real device running firmware 0.3.0 with Korean display. The screen design is cho
 | Folder | Contents | Current version | Manual |
 |---|---|---|---|
 | [`hardware/`](hardware/) | Clock firmware (PlatformIO · Arduino ESP8266) | **0.5.0** | [English](hardware/README.md) · [한국어](hardware/README.ko.md) |
-| [`server/`](server/) | Usage relay server `clock-usage-relay` (Python standard library) + front nginx config | **1.3.0** | [English](server/README.md) · [한국어](server/README.ko.md) |
+| [`server/`](server/) | Usage relay server `clock-usage-relay` (Python standard library) + front nginx config | **1.3.1** | [English](server/README.md) · [한국어](server/README.ko.md) |
 
 ```
                       HTTPS 443                            HTTP 8787                         HTTPS
 ┌──────────────────┐                ┌───────────────────┐                ┌────────────────┐            ┌───────────────────┐
 │ Clock (hardware) │ ─────────────▶ │ Front nginx proxy │ ─────────────▶ │ relay (server) │ ─────────▶ │ api.anthropic.com │
 │ ESP8266          │  Bearer token  │ TLS termination,  │  internal      │ token check,   │  once per  │                   │
-│                  │                │ path restriction  │  network only  │ 5-min samples  │  5 min     │                   │
+│                  │                │ path restriction  │  network only  │ 30-min samples │  30 min    │                   │
 └──────────────────┘                └───────────────────┘                └────────────────┘            └───────────────────┘
 ```
 
@@ -84,12 +84,12 @@ SD Pro 스마트 클락(ESP8266)의 순정 펌웨어를 지우고 자체 펌웨�
 | 폴더 | 내용 | 현재 버전 | 사용 설명서 |
 |---|---|---|---|
 | [`hardware/`](hardware/) | 시계 펌웨어 (PlatformIO · Arduino ESP8266) | **0.5.0** | [한국어](hardware/README.ko.md) · [English](hardware/README.md) |
-| [`server/`](server/) | 사용량 중계 서버 `clock-usage-relay` (Python 표준 라이브러리) + 앞단 nginx 설정 | **1.3.0** | [한국어](server/README.ko.md) · [English](server/README.md) |
+| [`server/`](server/) | 사용량 중계 서버 `clock-usage-relay` (Python 표준 라이브러리) + 앞단 nginx 설정 | **1.3.1** | [한국어](server/README.ko.md) · [English](server/README.md) |
 
 ```
 ┌──────────────┐  HTTPS 443   ┌───────────────────┐  HTTP 8787   ┌──────────────┐  HTTPS   ┌───────────────────┐
 │ 시계 (hardware)│ ───────────▶ │ 앞단 nginx 프록시 서버 │ ───────────▶ │ relay (server) │ ───────▶ │ api.anthropic.com │
-│ ESP8266       │  Bearer 토큰  │ TLS 종료·경로 제한   │  내부망 전용   │ 토큰 확인·표본   │  5분 1회  │                   │
+│ ESP8266       │  Bearer 토큰  │ TLS 종료·경로 제한   │  내부망 전용   │ 토큰 확인·표본   │  30분 1회 │                   │
 └──────────────┘              └───────────────────┘              └──────────────┘          └───────────────────┘
 ```
 

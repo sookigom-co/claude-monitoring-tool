@@ -506,7 +506,7 @@ class SampleTests(RelayTestBase):
         self.assertIn('"pct":42,', raw)
         self.assertIn('"pct_raw":42.4,', raw)
         body = json.loads(raw)
-        self.assertEqual(body["version"], "1.3.0")
+        self.assertEqual(body["version"], "1.3.1")
         self.assertEqual([(i["pct"], i["pct_raw"]) for i in body["items"]], [(42, 42.4), (17, 16.6)])
         self.assertIsInstance(body["items"][0]["pct"], int)
 
@@ -574,6 +574,23 @@ class SampleTests(RelayTestBase):
         self.assertEqual(hourly[:20] + hourly[22:], [1.0] * 22)
         self.assertEqual(hourly[20:22], [None, None])
         self.assertEqual(datetime_kst(top - 3600 * 4), "10:00")
+
+    def test_default_1800s_samples_fill_deltas_and_hourly(self):
+        self.cfg.sample_seconds = relay.DEFAULT_SAMPLE_SECONDS
+        self.now[0] = NOW_KST
+        top = NOW_KST - 25 * 60
+        self.seed([(ago, (NOW_KST - ago - top) / 3600 + 30.0, RESET_A) for ago in range(26 * 3600, -1, -1800)])
+        item = self.body("/clock/usage?hourly=1")["items"][0]
+        self.assertEqual((item["delta_1h"], item["delta_24h"]), (1.0, 24.0))
+        self.assertEqual(item["hourly"], [1.0] * 24)
+
+    def test_stale_after_twice_default_interval(self):
+        self.cfg.sample_seconds = relay.DEFAULT_SAMPLE_SECONDS
+        self.sampler.tick()
+        self.now[0] += 3600
+        self.assertEqual(self.body()["status"], "ok")
+        self.now[0] += 1
+        self.assertEqual(self.body()["status"], "stale")
 
     def test_sampler_exceptions_never_escape(self):
         class Boom:
@@ -692,12 +709,22 @@ class DeltaMathTests(unittest.TestCase):
         self.assertEqual(relay.window_delta(pts, 3600, 600), 12.0)
         self.assertEqual(relay.window_delta(pts[:-1] + [{"ts": 7400, "pct": 30.0, "resets_at": None}], 3600, 600), 18.0)
 
+    def test_1800s_samples_cover_every_clock_hour_at_any_phase(self):
+        now = NOW_KST
+        for phase in (0, 1, 900, 1799):
+            pts = [{"ts": t, "pct": t / 3600.0, "resets_at": None}
+                   for t in range(int(now - 27 * 3600) + phase, int(now) + 1, 1800)]
+            with self.subTest(phase=phase):
+                self.assertTrue(all(v is not None for v in relay.hourly_deltas(pts, now, KST, 3600)))
+                self.assertIsNotNone(relay.window_delta(pts, 3600, 3600))
+                self.assertIsNotNone(relay.window_delta(pts, 86400, 3600))
+
 
 class SampleConfigTests(unittest.TestCase):
     BASE = {"RELAY_CREDENTIALS_FILE": "/x", "RELAY_CLOCK_TOKEN": CLOCK_TOKEN}
 
     def test_sample_interval_and_retention(self):
-        self.assertEqual(relay.Config(self.BASE).sample_seconds, 300)
+        self.assertEqual(relay.Config(self.BASE).sample_seconds, 1800)
         self.assertEqual(relay.Config(dict(self.BASE, RELAY_CACHE_SECONDS="600")).sample_seconds, 600)
         cfg = relay.Config(dict(self.BASE, RELAY_CACHE_SECONDS="600", RELAY_SAMPLE_SECONDS="120"))
         self.assertEqual(cfg.sample_seconds, 120)

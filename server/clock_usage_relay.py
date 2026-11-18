@@ -24,7 +24,7 @@ try:
 except ImportError:  # pragma: no cover
     ZoneInfo = None
 
-VERSION = "1.3.0"
+VERSION = "1.3.1"
 
 DEFAULTS = {
     "RELAY_BIND": "127.0.0.1",
@@ -45,7 +45,7 @@ DEFAULTS = {
     "RELAY_AUTH_LOCKOUT_SECONDS": "900",
 }
 
-DEFAULT_SAMPLE_SECONDS = 300
+DEFAULT_SAMPLE_SECONDS = 1800
 DEFAULT_STATE_DIR = "/var/lib/clock-usage-relay"
 RESET_SHIFT_SECONDS = 3600
 HOURLY_BUCKETS = 24
