@@ -1,14 +1,16 @@
 [English](README.md) | **한국어**
 
-# clock-usage-relay (server) — 1.2.0
+# clock-usage-relay (server) — 1.3.0
 
 스마트 클락이 화면 아래에 표시할 **Claude 구독 주간 한도 사용률(%)** 을 Anthropic 에서 받아 작은 JSON 으로 내려주는 중계 서버입니다. Python 3.9 이상 표준 라이브러리만 씁니다(외부 패키지 0개).
+
+1.3.0 부터 relay 는 시계 요청과 상관없이 **5분마다 사용률을 표본으로 저장**합니다(`sqlite3`, 14일 보존). 시계 요청에는 저장된 최신 표본으로 바로 답하고, 표본 차이로 계산한 **증가값**(최근 1시간·24시간, 정시 1시간 구간별)을 함께 내려줍니다. 계산 규칙은 2.1절입니다.
 
 시계 펌웨어는 [`../hardware/README.ko.md`](../hardware/README.ko.md) 에 있습니다.
 
 ```
 [시계 ESP8266] --HTTPS--> [앞단 nginx 프록시 서버] --HTTP(내부망)--> [relay :8787] --5분에 1회--> api.anthropic.com
-                 Bearer relay 토큰      TLS 종료·경로 제한·요청 수 제한         토큰 확인·캐시·OAuth 갱신
+                 Bearer relay 토큰      TLS 종료·경로 제한·요청 수 제한         토큰 확인·표본 저장·OAuth 갱신
 ```
 
 Anthropic OAuth 토큰은 relay 서버 안에만 있습니다. 시계에는 사용률 숫자만 내려갑니다.
@@ -17,8 +19,12 @@ Anthropic OAuth 토큰은 relay 서버 안에만 있습니다. 시계에는 사�
 
 | 항목 | 상태 |
 |---|---|
-| 단위 시험 (`tests/test_relay.py`) | `CONFIRMED` — 32건 통과 (2026-11-15) |
-| nginx 연동 시험 (`tests/integration/run_nginx_it.sh`) | `CONFIRMED` — nginx 1.26.3(Debian 13 패키지) + 동봉 설정 파일로 11건 통과 (2026-11-15). 10.2절 |
+| 단위 시험 (`tests/test_relay.py`) | `CONFIRMED` — 60건 통과 (2026-11-18) |
+| nginx 연동 시험 (`tests/integration/run_nginx_it.sh`) | `CONFIRMED` — nginx 1.26.3(Debian 13 패키지 `1.26.3-3+deb13u7`) + 동봉 설정 파일로 12건 통과 (2026-11-18). 10.2절 |
+| 운영 서버 `python3` 에 `sqlite3` 모듈 있음 | `UNVERIFIED` — 8장 1단계에서 확인합니다 |
+| 상위 `utilization` 에 소수점이 있음 | `UNVERIFIED` — relay 는 값을 소수 그대로 저장합니다. 응답의 `pct_raw` 로 확인합니다 |
+| 주간 한도가 고정 창이고 `resets_at` 에 0 으로 돌아감 | `SUSPECT` — 증가값 계산은 이 가정을 씁니다(2.1절). 원시 표본을 보존하므로 사후 검증이 가능합니다 |
+| 상위가 하루 288회 조회를 막지 않음 | `SUSPECT` — 3장 CAUTION |
 | 실제 Anthropic 응답 형식, Fable 행 유무 | `UNVERIFIED` — 설치 후 첫 호출에서 확인합니다(4.5절) |
 | 실제 도메인·Let's Encrypt 인증서로 시계 접속 | `UNVERIFIED` |
 
@@ -82,7 +88,7 @@ relay 의 Fable 칸 결정 순서:
 relay 동작:
 - 만료 5분 전이면 미리 갱신합니다. 사용량 조회가 401/403 이면 1회 갱신 후 재시도합니다.
 - 갱신 결과(새 access/refresh token)를 자격증명 파일에 **원자적으로 다시 씁니다**(임시 파일 → `rename`, 권한 600).
-- 갱신이 실패하면 마지막 값을 그대로 내려주고 `status:"stale"`, `error:"refresh_failed"` 를 붙입니다.
+- 갱신이 실패하면 표본을 저장하지 않고, 마지막 표본을 그대로 내려주며 `error:"refresh_failed"` 를 붙입니다. 마지막 표본이 표본 간격 × 2 보다 오래되면 `status:"stale"` 이 됩니다(2장).
 
 > **CAUTION** — refresh token 이 회전하므로 **같은 로그인 정보를 relay 와 다른 Claude Code 가 함께 쓰면 한쪽이 로그아웃됩니다.** relay 전용으로 새로 로그인한 자격증명을 쓰십시오(4.3절).
 
@@ -95,25 +101,47 @@ relay 동작:
 `GET /clock/usage` · 헤더 `Authorization: Bearer <relay 토큰>`
 
 ```json
-{"updated":"2026-11-13T19:30:16+09:00","period":"7d",
- "items":[{"label":"Claude","value":"42%","pct":42,"resets":"11-18 09:00"},
-          {"label":"Fable","value":"17%","pct":17,"resets":"11-18 09:00"}],
- "status":"ok"}
+{"updated":"2026-11-18T14:25:00+09:00","period":"7d","status":"ok","version":"1.3.0","sample_age_s":120,
+ "items":[{"label":"Claude","value":"42%","pct":42,"resets":"11-18 09:00","pct_raw":42.3,"delta_1h":1.4,"delta_24h":11.2},
+          {"label":"Fable","value":"17%","pct":17,"resets":"11-18 09:00","pct_raw":17.0,"delta_1h":0.0,"delta_24h":2.0}]}
+```
+
+`GET /clock/usage?hourly=1` 이면 항목마다 `hourly`(24개)가 붙습니다.
+
+```json
+{"label":"Claude", …, "delta_24h":11.2,"hourly":[0.0,null,0.3,1.1, … ,0.4]}
 ```
 
 | 필드 | 형식 | 설명 |
 |---|---|---|
-| `updated` | ISO8601 문자열 \| `null` | 마지막 **성공** 조회 시각(`RELAY_TZ`, 기본 KST). 한 번도 성공 못 했으면 `null` |
+| `updated` | ISO8601 문자열 \| `null` | 최신 표본 시각 = 마지막 **성공** 조회 시각(`RELAY_TZ`, 기본 KST). 표본이 없으면 `null` |
 | `period` | `"7d"` | 고정 |
 | `items[]` | 항상 2개, 순서 `Claude`, `Fable` | |
 | `items[].value` | 문자열 | `"42%"` 또는 `"n/a"` |
 | `items[].pct` | 0~100 정수 \| `null` | 반올림·범위 제한 적용 |
 | `items[].resets` | `"MM-DD HH:MM"` (선택) | 주간 한도 초기화 시각. 모르면 필드 자체가 없음 |
-| `status` | `"ok"` \| `"stale"` \| `"error"` | **추가 필드.** `stale` = 최근 조회 실패, 이전 값 표시 중. `error` = 성공 이력 없음 |
-| `error` | 문자열 (선택) | **추가 필드.** `refresh_failed`, `usage_http_401`, `network`, `credentials_unreadable` 등 |
+| `status` | `"ok"` \| `"stale"` \| `"error"` | **추가 필드.** 최신 표본 나이로 정합니다. `ok` = 표본 간격 × 2 이내(기본 600초). `stale` = 그보다 오래됨, 마지막 표본 값을 표시 중. `error` = 표본이 하나도 없음 |
+| `error` | 문자열 (선택) | **추가 필드.** 가장 최근 상위 호출이 실패했으면 그 코드. `refresh_failed`, `usage_http_401`, `network`, `credentials_unreadable`, `internal`, `storage_error`(표본 파일 읽기·쓰기 실패), `no_sample`(기동 직후 첫 표본 전). `status` 가 `ok` 여도 붙을 수 있습니다(한 번 실패했지만 표본은 아직 새것) |
+| `version` | 문자열 | **1.3.0 추가.** relay 버전 |
+| `sample_age_s` | 정수 \| `null` | **1.3.0 추가.** 최신 표본 나이(초) |
+| `items[].pct_raw` | 실수 \| `null` | **1.3.0 추가.** 상위 원값(반올림·범위 제한 없음) |
+| `items[].delta_1h` | 실수 \| `null` | **1.3.0 추가.** 최근 약 1시간 증가값(%p, 소수 1자리). 2.1절 |
+| `items[].delta_24h` | 실수 \| `null` | **1.3.0 추가.** 최근 약 24시간 증가값(%p, 소수 1자리) |
+| `items[].hourly` | 실수 \| `null` 24개 (선택) | **1.3.0 추가, `?hourly=1` 일 때만.** 최근 **완료된** 정시 구간 24개의 증가값, 오래된 것부터. 마지막 값이 직전 정시 구간(14:25 에 조회하면 13:00~14:00) |
 
+- 1.2.0 필드(`updated`·`period`·`status`·`items[].label/value/pct/resets`)의 형식·의미는 1.3.0 에서 바뀌지 않았습니다. `pct` 는 계속 정수입니다.
+- 기본 응답은 약 340바이트, `?hourly=1` 응답은 약 550~600바이트입니다(목 서버 실측). 시계 응답 한도 4,096바이트 미만을 시험으로 고정합니다. 펌웨어 0.3.0 은 `?hourly=1` 을 쓰지 않습니다.
 - `status`·`error` 는 SOO-597 초안 대비 **추가**입니다. 펌웨어는 모르는 필드를 무시하면 됩니다. 펌웨어 0.1.1 이후는 `status` 를 머리글에 표시합니다(`hardware/README.ko.md` 10장).
-- 기타 응답: 토큰 없음·불일치 `401 {"error":"unauthorized"}`, 토큰 오입력 반복으로 차단된 접속 주소 `429 {"error":"too_many_failures"}` + `Retry-After`(초), 다른 경로 `404`, GET 외 메서드 `405`, `GET /healthz` 는 인증 없이 `{"ok":true}`(5장 nginx 구성에서는 외부에 공개하지 않습니다).
+- 기타 응답: 토큰 없음·불일치 `401 {"error":"unauthorized"}`, 토큰 오입력 반복으로 차단된 접속 주소 `429 {"error":"too_many_failures"}` + `Retry-After`(초), 다른 경로 `404`, GET 외 메서드 `405`, `GET /healthz` 는 인증 없이 `{"ok":true,"version":"1.3.0","samples":288,"latest_sample":"2026-11-18T14:25:00+09:00"}`(표본 수·최신 표본 시각만, 사용률 값 없음. 표본 파일을 못 읽으면 `samples`·`latest_sample` 이 `null`. 5장 nginx 구성에서는 외부에 공개하지 않습니다).
+
+### 2.1 증가값 계산
+
+- **표본.** relay 는 기동 직후 1회, 이후 `RELAY_SAMPLE_SECONDS`(기본 300초)마다 상위를 호출해 Claude·Fable 값과 각 `resets_at` 을 1행으로 저장합니다. 실패한 호출은 행을 남기지 않습니다(빈 구간). 서버가 꺼진 시간도 빈 구간이고 0 으로 채우지 않습니다.
+- **`delta_1h`·`delta_24h`.** 최신 표본 − (최신 표본 시각 − 60분/24시간 이전의 가장 최근 표본). 표본이 5분 간격이므로 실제 구간은 60분보다 **최대 5분 깁니다**(24시간도 같음). 비교 표본이 없거나 그 표본이 기준 시각보다 표본 간격 × 2 이상 오래됐으면(서버가 꺼져 있었음) `null` 입니다.
+- **`hourly`.** `RELAY_TZ` 기준 정시 경계 구간. 구간 h 의 값 = (h 의 마지막 표본) − (h−1 의 마지막 표본). 어느 한쪽 구간에 표본이 없으면 `null`.
+- **초기화 보정.** 비교하는 두 표본 사이에서 `resets_at` 이 1시간 이상 바뀌면 주간 한도가 초기화된 것으로 보고, 증가값 = (초기화 직전 마지막 표본 − 시작 표본) + (끝 표본 − 0) 으로 계산합니다. 초기화 직전 표본이 이전 `resets_at` 시각보다 표본 간격 × 2 이상 앞서면(초기화 무렵 표본 없음) `null` 입니다. 1시간 미만의 `resets_at` 흔들림은 초기화로 보지 않습니다.
+- **감소.** `resets_at` 이 그대로인데 값이 줄면 음수를 그대로 돌려줍니다(0 으로 자르지 않음). 주간 한도가 이동 창인지 확인하는 데 씁니다.
+- **반올림.** 저장은 상위 값 그대로(소수), 응답 직전에만 소수 1자리로 반올림합니다. 상위가 정수만 주면 `1.0` 처럼 나옵니다.
 
 
 ---
@@ -127,7 +155,9 @@ relay 동작:
 | `RELAY_BIND` | `127.0.0.1` | 바인드 주소. **nginx 가 다른 서버에 있으면** relay 서버의 내부망 IP 또는 `0.0.0.0` 으로 바꿉니다(5.3절) |
 | `RELAY_PORT` | `8787` | 포트 |
 | `RELAY_TRUSTED_PROXIES` | `127.0.0.1,::1` | nginx 서버 주소. 쉼표로 여러 개, CIDR 가능(`10.0.0.12`, `10.0.0.0/24`). 이 주소에서 온 요청만 `X-Forwarded-For` 의 마지막 값을 실제 접속 주소로 봅니다. 잘못된 값이면 기동하지 않습니다 |
-| `RELAY_CACHE_SECONDS` | `300` | 상위 호출 간격(최소 30). 실패해도 이 간격을 지킵니다 |
+| `RELAY_SAMPLE_SECONDS` | `300` | 표본 간격 = 상위 호출 간격(최소 60). 실패해도 이 간격을 지킵니다. 없으면 1.2.0 의 `RELAY_CACHE_SECONDS` 값을 씁니다 |
+| `RELAY_SAMPLE_RETENTION_DAYS` | `14` | 표본 보존 일수(최소 2). 표본을 저장할 때마다 오래된 행을 지웁니다. 14일 ≈ 4,032행, 1MB 미만 |
+| `RELAY_SAMPLES_DB` | `$STATE_DIRECTORY/samples.db` | 표본 파일(`sqlite3`). systemd 아래에서는 `/var/lib/clock-usage-relay/samples.db`. 파일 권한 600, 폴더가 없으면 700 으로 만듭니다 |
 | `RELAY_TZ` | `Asia/Seoul` | 표시 시간대 |
 | `RELAY_CREDENTIALS_FILE` | (필수) | Claude Code `.credentials.json` 형식 파일. 갱신 시 relay 가 다시 씁니다 |
 | `RELAY_CLOCK_TOKEN_FILE` | (필수, 또는 `RELAY_CLOCK_TOKEN`) | 시계 인증 토큰. 16자 이상 |
@@ -135,6 +165,8 @@ relay 동작:
 | `RELAY_AUTH_WINDOW_SECONDS` | `600` | 실패 횟수를 세는 구간(초) |
 | `RELAY_AUTH_LOCKOUT_SECONDS` | `900` | 차단 시간(초). 차단 중에는 맞는 토큰도 `429` |
 | `RELAY_USAGE_URL` · `RELAY_TOKEN_URL` · `RELAY_OAUTH_CLIENT_ID` · `RELAY_OAUTH_SCOPES` · `RELAY_OAUTH_BETA` | 1장 표의 값 | 상위 형식이 바뀌었을 때 코드 수정 없이 바꾸는 용도 |
+
+> **CAUTION** — 1.3.0 은 시계 수와 상관없이 상위를 **하루 최대 288회**(5분마다) 호출합니다. 1.2.0 은 최대 144회였습니다. 상위가 이 빈도를 허용하는지는 `SUSPECT` 입니다. 로그에 `usage_http_429` 등 차단이 보이면 `RELAY_SAMPLE_SECONDS=600` 으로 늘리고 재시작합니다.
 
 > **CAUTION** — nginx 가 다른 서버에 있는데 `RELAY_TRUSTED_PROXIES` 에 그 주소를 넣지 않으면, relay 는 모든 시계를 nginx 주소 하나로 봅니다. 그러면 누군가 토큰을 10번 틀리는 것만으로 **모든 시계가 15분간 차단**됩니다. 이 상태로 기동하면 로그에 `RELAY_TRUSTED_PROXIES has only loopback` 경고가 남습니다.
 
@@ -213,7 +245,7 @@ journalctl -u clock-usage-relay -n 50 --no-pager      # "listening on …" 확�
 ```bash
 H=127.0.0.1        # RELAY_BIND 를 내부망 IP 로 정했으면 그 IP
 TOKEN="$(cat /var/lib/clock-usage-relay/clock_token)"
-curl -s http://$H:8787/healthz                                     # {"ok":true}
+curl -s http://$H:8787/healthz                                     # {"ok":true,"version":"1.3.0","samples":1,…}
 curl -s -H "Authorization: Bearer $TOKEN" http://$H:8787/clock/usage; echo
 curl -s -o /dev/null -w '%{http_code}\n' http://$H:8787/clock/usage   # 401
 unset TOKEN
@@ -471,7 +503,44 @@ chown clockrelay:clockrelay /var/lib/clock-usage-relay/clock_token; systemctl re
 
 ---
 
-## 8. 업그레이드 (1.1.0 → 1.2.0)
+## 8. 업그레이드 (1.2.0 → 1.3.0)
+
+> **WARNING** — 운영 서버에서 root 로 실행하는 명령입니다. 보드 또는 보드가 지시한 담당자가 직접 실행합니다. 에이전트는 `ssh-rw` 로 실행하지 않습니다(회사 규칙 SOO-184).
+
+systemd unit 파일과 `relay.env` 는 **바꿀 필요가 없습니다.** 표본 파일은 unit 의 `StateDirectory=clock-usage-relay`(= `/var/lib/clock-usage-relay`, 700) 안에 생기고, `ProtectSystem=strict` 에서도 이 폴더는 쓰기가 허용됩니다. 기존 `RELAY_CACHE_SECONDS=300` 은 표본 간격으로 그대로 쓰입니다.
+
+1. relay 서버의 `python3` 에 `sqlite3` 모듈이 있는지 확인합니다. 버전 숫자가 나오면 다음 단계로 갑니다. `ModuleNotFoundError` 가 나오면 **여기서 멈추고** 결과를 태스크에 남깁니다.
+   ```bash
+   python3 -c 'import sqlite3; print(sqlite3.sqlite_version)'
+   ```
+2. Release `server-v1.3.0` 에서 `clock-usage-relay-1.3.0.tar.gz`·`SHA256SUMS` 를 받아 확인하고 풉니다.
+   ```bash
+   sha256sum -c SHA256SUMS
+   tar xzf clock-usage-relay-1.3.0.tar.gz && cd clock-usage-relay-1.3.0
+   ```
+3. 지금 파일을 남기고 새 파일로 바꾼 뒤 재시작합니다.
+   ```bash
+   cp -p /opt/clock-usage-relay/clock_usage_relay.py /opt/clock-usage-relay/clock_usage_relay.py.1.2.0
+   install -m 644 clock_usage_relay.py /opt/clock-usage-relay/
+   systemctl restart clock-usage-relay
+   journalctl -u clock-usage-relay -n 5 --no-pager    # "sample every 300s into /var/lib/clock-usage-relay/samples.db"
+   ```
+4. 표본이 쌓이는지 확인합니다. `samples` 가 1 이상이고 `latest_sample` 이 방금 시각이면 정상입니다. 5분 뒤 다시 보면 1 늘어 있어야 합니다.
+   ```bash
+   curl -s http://127.0.0.1:8787/healthz; echo          # RELAY_BIND 가 내부망 IP 면 그 IP
+   ls -l /var/lib/clock-usage-relay/samples.db         # -rw------- clockrelay clockrelay
+   ```
+5. 시계 응답을 확인합니다(4.5절 방식). `"version":"1.3.0"` 이 보이면 정상입니다. 업그레이드 직후 1시간 동안 `delta_1h` 는 `null`, 24시간 동안 `delta_24h` 는 `null` 입니다(비교할 표본이 아직 없음).
+
+**되돌리기.** 남겨 둔 1.2.0 파일로 바꾸고 재시작합니다. 1.2.0 은 `samples.db` 와 `RELAY_SAMPLE_*` 설정을 무시하므로 그대로 둬도 됩니다. 지우려면 `rm /var/lib/clock-usage-relay/samples.db` 입니다.
+
+```bash
+install -m 644 /opt/clock-usage-relay/clock_usage_relay.py.1.2.0 /opt/clock-usage-relay/clock_usage_relay.py
+systemctl restart clock-usage-relay
+```
+
+### 8.1 이전 업그레이드 (1.1.0 → 1.2.0)
+
 
 relay 서버에서 `server/` 폴더로 이동해 실행합니다.
 
@@ -499,7 +568,7 @@ journalctl -u clock-usage-relay -n 5 --no-pager
 ```bash
 systemctl disable --now clock-usage-relay
 rm -f /etc/systemd/system/clock-usage-relay.service && systemctl daemon-reload
-rm -rf /opt/clock-usage-relay /etc/clock-usage-relay /var/lib/clock-usage-relay   # 자격증명 파일 포함 삭제
+rm -rf /opt/clock-usage-relay /etc/clock-usage-relay /var/lib/clock-usage-relay   # 자격증명 파일·표본 파일(samples.db) 포함 삭제
 userdel clockrelay
 ```
 
@@ -516,7 +585,11 @@ cd server
 python3 -m unittest discover -s tests -v
 ```
 
-목(mock) 상위 서버를 띄워 32건을 검사합니다. 계약 형식·값, OAuth 토큰이 응답에 섞이지 않음, 시계 인증 거부, 캐시, 401 → 갱신 → 재시도와 회전된 토큰 저장(권한 600), 만료 임박 선갱신, 갱신 실패 시 `stale`, 첫 호출 실패 시 `error`, Fable 경로, 토큰 오입력 차단·만료, 신뢰 프록시의 `X-Forwarded-For` 처리, 1.2.0 추가분(CIDR·IPv4-mapped 신뢰 프록시, 잘못된 값 거부, 설정 누락 경고, IP 가 아닌 `X-Forwarded-For` 무시)이 포함됩니다.
+목(mock) 상위 서버를 띄워 60건을 검사합니다. 계약 형식·값, OAuth 토큰이 응답에 섞이지 않음, 시계 인증 거부, 상위 호출 간격, 401 → 갱신 → 재시도와 회전된 토큰 저장(권한 600), 만료 임박 선갱신, 갱신 실패 시 `stale`, 첫 호출 실패 시 `error`, Fable 경로, 토큰 오입력 차단·만료, 신뢰 프록시의 `X-Forwarded-For` 처리, 1.2.0 추가분(CIDR·IPv4-mapped 신뢰 프록시, 잘못된 값 거부, 설정 누락 경고, IP 가 아닌 `X-Forwarded-For` 무시)이 포함됩니다.
+
+1.3.0 추가 28건(임시 sqlite 파일 + 시각 주입): 표본 저장(소수 보존)·보존 기간 삭제, 실패한 호출은 표본 없음, 형식을 못 읽은 응답은 `raw_ok=0`, 재시작 뒤 표본 유지, 시계 요청이 상위를 호출하지 않음(호출 횟수 계측), 표본 나이로 정하는 `status`, `pct` 정수·`pct_raw` 소수, `hourly` 는 `?hourly=1` 에서만, `hourly` 포함 응답 4,096바이트 미만, `delta_1h`·`delta_24h` 기본·`null`·너무 오래된 비교 표본·초기화 보정·초기화 직전 표본 없음·음수 유지, 정시 구간 계산과 빈 구간, 표본 스레드 예외가 밖으로 나가지 않음, 표본 파일 쓰기 실패 보고, `/healthz` 표본 수, unit 파일의 `StateDirectory` 와 기본 경로 일치, 상위 폴더가 읽기 전용이어도 상태 폴더 안에만 쓰기(권한 600/700), 설정값 기본·하한·`RELAY_CACHE_SECONDS` 호환.
+
+기존 1.2.0 시험 32건은 그대로 두되, 시계 요청이 더 이상 상위를 부르지 않으므로 상위 호출이 필요한 시험은 표본 1회(`sampler.tick()`) 뒤에 요청하도록 바꿨습니다. 캐시 시험 2건은 같은 내용을 표본 간격 기준으로 검사합니다.
 
 ### 10.2 nginx 연동 시험
 
@@ -525,7 +598,7 @@ cd server
 tests/integration/run_nginx_it.sh /usr/sbin/nginx       # nginx 실행 파일 경로. root 불필요
 ```
 
-동봉 `deploy/nginx/clock-usage-relay.conf` 를 그대로 쓰고, 주소·인증서만 시험용으로 바꿉니다. nginx 는 `127.0.0.3` 에서 relay(`127.0.0.2:18787`)로 접속해 **별도 서버**를 흉내 냅니다. 2026-11-15 결과(nginx 1.26.3, 11건 통과):
+동봉 `deploy/nginx/clock-usage-relay.conf` 를 그대로 쓰고, 주소·인증서만 시험용으로 바꿉니다. nginx 는 `127.0.0.3` 에서 relay(`127.0.0.2:18787`)로 접속해 **별도 서버**를 흉내 냅니다. 2026-11-18 결과(nginx 1.26.3-3+deb13u7, 12건 통과):
 
 | 검사 | 결과 |
 |---|---|
@@ -535,4 +608,5 @@ tests/integration/run_nginx_it.sh /usr/sbin/nginx       # nginx 실행 파일 �
 | `X-Forwarded-For` 를 위조해도 실제 접속 주소 기준으로 10회 실패 후 relay 429 | 통과 |
 | relay 로그의 접속 주소가 nginx 주소가 아닌 실제 접속 주소 | 통과 |
 | nginx 접근 로그·relay 로그에 토큰 0건 | 통과 |
-| 상위 호출 1회(캐시) | 통과 |
+| `?hourly=1` 이 nginx 를 지나 relay 에 전달됨(항목마다 24개) | 통과 |
+| 상위 호출 1회(표본 스레드, 시계 요청 수와 무관) | 통과 |

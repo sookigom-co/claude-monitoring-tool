@@ -22,8 +22,11 @@ json.dump({"claudeAiOauth": {"accessToken": tr.OLD_ACCESS, "refreshToken": tr.OL
 os.chmod(creds, 0o600)
 cfg = relay.Config({"RELAY_BIND": "127.0.0.2", "RELAY_PORT": "18787", "RELAY_TRUSTED_PROXIES": "127.0.0.3",
                     "RELAY_USAGE_URL": mock.url + "/api/oauth/usage", "RELAY_TOKEN_URL": mock.url + "/v1/oauth/token",
-                    "RELAY_CREDENTIALS_FILE": creds, "RELAY_CLOCK_TOKEN": tr.CLOCK_TOKEN})
-server, _ = relay.build_server(cfg)
+                    "RELAY_CREDENTIALS_FILE": creds, "RELAY_CLOCK_TOKEN": tr.CLOCK_TOKEN,
+                    "RELAY_SAMPLES_DB": os.path.join(T, "samples.db")})
+server, sampler = relay.build_server(cfg)
+sampler.tick()
+sampler.start()
 threading.Thread(target=server.serve_forever, daemon=True).start()
 
 def nginx(*a):
@@ -72,6 +75,8 @@ s, b, _ = req(); check("nginx limit_req: burst exceeded -> 429 html", s == 429 a
 conf = open(T + "/site.conf").read()
 open(T + "/site.conf", "w").write("\n".join(l for l in conf.splitlines() if "limit_req zone" not in l and "limit_req_status" not in l))
 nginx("-s", "reload"); time.sleep(0.8)
+s, b, _ = req(path="/clock/usage?hourly=1")
+check("?hourly=1 passes through nginx (24 buckets per item)", s == 200 and all(len(i["hourly"]) == 24 for i in json.loads(b)["items"]), b[:60])
 for i in range(10):
     req(token="wrong-token-wrong-token", headers={"X-Forwarded-For": "198.51.100.%d" % i})
 s, b, _ = req(headers={"X-Forwarded-For": "203.0.113.9"})
@@ -82,7 +87,7 @@ s, b, _ = req(direct=True, headers={"X-Forwarded-For": "203.0.113.50"})
 check("direct (untrusted) peer 127.0.0.1 cannot escape lockout with forged XFF -> 429", s == 429 and "too_many_failures" in b, s)
 access = open(T + "/logs/clock-usage-relay.access.log").read()
 check("token absent from nginx access log and relay log", tr.CLOCK_TOKEN not in access and tr.CLOCK_TOKEN not in logs and "sk-ant" not in logs)
-check("upstream called once (cache)", mock.usage_calls == 1, mock.usage_calls)
-nginx("-s", "stop"); server.shutdown(); mock.close()
+check("upstream called once (sampler, not per clock request)", mock.usage_calls == 1, mock.usage_calls)
+nginx("-s", "stop"); server.shutdown(); sampler.stop(); mock.close()
 print("%d/%d passed" % (sum(ok for _, ok in results), len(results)))
 sys.exit(0 if all(ok for _, ok in results) else 1)
